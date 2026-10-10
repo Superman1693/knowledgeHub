@@ -13,6 +13,15 @@ class DocumentUpdate(BaseModel):
     content_text: str | None = None
 
 
+class DocumentTagOut(BaseModel):
+    """文档上挂载的标签（精简版，只带 id 与名称）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+
+
 class DocumentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -25,6 +34,7 @@ class DocumentOut(BaseModel):
     error_message: str | None = None
     chunk_count: int
     category_id: uuid.UUID | None = None
+    tags: list[DocumentTagOut] = []
     created_at: datetime
     updated_at: datetime
 

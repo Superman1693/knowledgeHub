@@ -14,6 +14,8 @@ export interface DocumentOut {
   error_message?: string | null
   chunk_count: number
   category_id?: string | null
+  /** 文档上挂载的标签（后端 DocumentOut 已带）。 */
+  tags?: { id: string; name: string }[]
   created_at: string
   updated_at: string
 }
@@ -166,4 +168,156 @@ export interface HealthOut {
   storage_mode: string
   ai_mode: string
   data_dir: string
+}
+
+// ===== 扩展模块：AI 知识加工 =====
+
+export interface ChunkBrief {
+  chunk_id: string
+  document_id: string
+  document_title: string
+  heading: string | null
+  snippet: string
+}
+
+export interface DuplicatePair {
+  distance: number
+  similarity: number
+  same_document: boolean
+  left: ChunkBrief
+  right: ChunkBrief
+}
+
+export interface RelatedDocument {
+  document_id: string
+  document_title: string
+  chunk_count: number
+  similarity: number
+}
+
+export interface OrganizeSuggestion {
+  document_id: string
+  current_title: string
+  suggested_title: string
+  category: string
+  tags: string[]
+  summary: string
+  reason: string
+  note: string
+}
+
+// ===== 扩展模块：学习辅助 =====
+
+export interface QuizQuestion {
+  question: string
+  reference_answer: string
+  source_chunk_id: string | null
+  source_document_id: string | null
+  source_document_title: string | null
+}
+
+export interface QuizQuestionSet {
+  mode: string
+  direction: string | null
+  difficulty: string
+  total: number
+  questions: QuizQuestion[]
+  note: string
+}
+
+export interface GradeResult {
+  record_id: string
+  score: number
+  passed: boolean
+  feedback: string | null
+  missing: string[]
+  note: string
+}
+
+export interface QuizRecord {
+  id: string
+  question: string
+  reference_answer: string | null
+  user_answer: string | null
+  score: number | null
+  feedback: string | null
+  direction: string | null
+  difficulty: string | null
+  mastered: boolean
+  missing: string[]
+  source_document_id: string | null
+  created_at: string
+}
+
+export interface ReviewStats {
+  total_answered: number
+  mistakes: number
+  mistakes_pending: number
+  mastered: number
+  average_score: number
+  pass_score: number
+}
+
+// ===== 扩展模块：项目开发辅助 =====
+
+export interface ReviewPoint {
+  point: string
+  basis?: string
+  reason?: string
+  level?: string
+}
+
+export interface CodeReviewResult {
+  language: string | null
+  from_knowledge: ReviewPoint[]
+  suggestions: ReviewPoint[]
+  summary: string
+  context_count: number
+  note: string
+}
+
+export interface TroubleshootCause {
+  cause: string
+  basis?: string
+  verify?: string
+  action?: string
+}
+
+export interface TroubleshootResult {
+  confirmed: TroubleshootCause[]
+  possible: TroubleshootCause[]
+  need_more_info: string[]
+  context_count: number
+  note: string
+}
+
+export interface BreakdownTask {
+  title: string
+  detail?: string
+  acceptance?: string
+  basis?: string
+}
+
+export interface BreakdownResult {
+  goal: string
+  tasks: BreakdownTask[]
+  risks: string[]
+  assumptions: string[]
+  context_count: number
+  note: string
+}
+
+export interface TimelineEvent {
+  date: string
+  date_known: boolean
+  event: string
+  source: string
+}
+
+export interface TimelineResult {
+  documents: string[]
+  total: number
+  events: TimelineEvent[]
+  undated: number
+  note: string
 }

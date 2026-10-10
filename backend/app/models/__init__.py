@@ -5,6 +5,7 @@ from app.models.chunk import Chunk
 from app.models.conversation import Conversation, Message
 from app.models.document import Document
 from app.models.glossary import GlossaryTerm
+from app.models.learning import QuizRecord
 from app.models.setting import AppSetting
 from app.models.tag import Tag, document_tags
 
@@ -16,6 +17,7 @@ __all__ = [
     "Message",
     "Document",
     "GlossaryTerm",
+    "QuizRecord",
     "AppSetting",
     "Tag",
     "document_tags",

@@ -12,9 +12,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import backup as backup_api
 from app.api import categories as categories_api
 from app.api import chat as chat_api
+from app.api import devhelper as devhelper_api
 from app.api import documents as documents_api
 from app.api import glossary as glossary_api
 from app.api import health as health_api
+from app.api import insights as insights_api
+from app.api import learning as learning_api
 from app.api import search as search_api
 from app.api import settings as settings_api
 from app.api import tags as tags_api
@@ -76,6 +79,10 @@ app.include_router(search_api.router)
 app.include_router(chat_api.router)
 app.include_router(settings_api.router)
 app.include_router(backup_api.router)
+# 扩展模块：知识加工 / 学习辅助 / 项目开发辅助
+app.include_router(insights_api.router)
+app.include_router(learning_api.router)
+app.include_router(devhelper_api.router)
 
 
 @app.get("/")

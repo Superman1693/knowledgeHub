@@ -119,11 +119,19 @@ const menuGroups: MenuGroup[] = [
     ],
   },
   {
+    label: '扩展能力',
+    items: [
+      { path: '/insights', title: '知识加工', icon: 'MagicStick' },
+      { path: '/learning', title: '学习辅助', icon: 'Reading' },
+      { path: '/devhelper', title: '开发辅助', icon: 'Tools' },
+    ],
+  },
+  {
     label: '系统',
     items: [
       { path: '/settings', title: '系统设置', icon: 'Setting' },
       { path: '/data', title: '数据与备份', icon: 'Coin' },
-      { path: '/extensions', title: '后续扩展', icon: 'Grid' },
+      { path: '/extensions', title: '扩展总览', icon: 'Grid' },
     ],
   },
 ]

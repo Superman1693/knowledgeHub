@@ -1,17 +1,28 @@
 import client from './client'
 import type {
+  BreakdownResult,
   Category,
   ChunkOut,
+  CodeReviewResult,
   ConversationDetail,
   ConversationOut,
   DocumentDetail,
   DocumentListOut,
+  DuplicatePair,
   GlossaryTerm,
+  GradeResult,
   HealthOut,
   IndexStatus,
+  OrganizeSuggestion,
+  QuizQuestionSet,
+  QuizRecord,
+  RelatedDocument,
+  ReviewStats,
   SearchResponse,
   SettingsOut,
   Tag,
+  TimelineResult,
+  TroubleshootResult,
   WebResult,
 } from './types'
 
@@ -340,5 +351,94 @@ export const systemApi = {
   },
   cleanCache() {
     return client.post('/cache/clean').then((r) => r.data)
+  },
+}
+
+// ===== 扩展模块：AI 知识加工 =====
+export const insightsApi = {
+  /** 冗余检测：内容高度相似的片段对（纯向量计算，不消耗对话模型）。 */
+  duplicates(threshold = 0.1, limit = 20) {
+    return client
+      .get<{ total: number; items: DuplicatePair[]; note: string }>('/insights/duplicates', {
+        params: { threshold, limit },
+      })
+      .then((r) => r.data)
+  },
+  /** 跨文档关联：与指定文档内容最相近的其它文档。 */
+  related(documentId: string, limit = 5) {
+    return client
+      .get<{ total: number; items: RelatedDocument[] }>(`/insights/related/${documentId}`, {
+        params: { limit },
+      })
+      .then((r) => r.data)
+  },
+  /** 思维导图：AI 依据文档生成 Mermaid（节点取自原文）。 */
+  mindmap(documentId: string) {
+    return client
+      .post<{ document_title: string; mermaid: string; note: string }>(
+        `/insights/mindmap/${documentId}`,
+      )
+      .then((r) => r.data)
+  },
+  /** 整理归档：生成标题 / 分类 / 标签建议（不会自动应用）。 */
+  organize(documentId: string) {
+    return client.post<OrganizeSuggestion>(`/insights/organize/${documentId}`).then((r) => r.data)
+  },
+}
+
+// ===== 扩展模块：学习辅助 =====
+export const learningApi = {
+  questions(payload: { count?: number; direction?: string; difficulty?: string; mode?: string }) {
+    return client.post<QuizQuestionSet>('/learning/questions', payload).then((r) => r.data)
+  },
+  grade(payload: {
+    question: string
+    reference_answer: string
+    user_answer: string
+    direction?: string
+    difficulty?: string
+    source_chunk_id?: string | null
+    source_document_id?: string | null
+  }) {
+    return client.post<GradeResult>('/learning/grade', payload).then((r) => r.data)
+  },
+  mistakes(includeMastered = false) {
+    return client
+      .get<{ total: number; items: QuizRecord[] }>('/learning/mistakes', {
+        params: { include_mastered: includeMastered },
+      })
+      .then((r) => r.data)
+  },
+  setMastered(recordId: string, mastered: boolean) {
+    return client
+      .post<QuizRecord>(`/learning/mistakes/${recordId}/mastered`, { mastered })
+      .then((r) => r.data)
+  },
+  removeMistake(recordId: string) {
+    return client.delete(`/learning/mistakes/${recordId}`).then((r) => r.data)
+  },
+  stats() {
+    return client.get<ReviewStats>('/learning/stats').then((r) => r.data)
+  },
+}
+
+// ===== 扩展模块：项目开发辅助 =====
+export const devhelperApi = {
+  review(payload: { code: string; language?: string; focus?: string }) {
+    return client.post<CodeReviewResult>('/devhelper/review', payload).then((r) => r.data)
+  },
+  troubleshoot(payload: { symptom: string; context?: string }) {
+    return client.post<TroubleshootResult>('/devhelper/troubleshoot', payload).then((r) => r.data)
+  },
+  breakdown(payload: { requirement: string }) {
+    return client.post<BreakdownResult>('/devhelper/breakdown', payload).then((r) => r.data)
+  },
+  timeline(payload: { document_id?: string; query?: string }) {
+    return client.post<TimelineResult>('/devhelper/timeline', payload).then((r) => r.data)
+  },
+  timelineDates(documentId: string) {
+    return client
+      .get<{ dates: string[]; total: number }>(`/devhelper/timeline/dates/${documentId}`)
+      .then((r) => r.data)
   },
 }
