@@ -1,9 +1,83 @@
+/* ============================================================
+   KnowledgeHub 设计系统
+   定位：本地个人知识库 —— 沉静、耐读、有纸感
+   ============================================================ */
+
 :root {
-  --kh-bg: #f5f7fa;
+  /* ---- 主色：靛蓝（沉静、知识感）---- */
+  --kh-primary: #4a5fd6;
+  --kh-primary-dark: #3b4cab;
+  --kh-primary-soft: #eef0fd;
+  --kh-primary-border: #d5daf7;
+
+  /* ---- 中性色：暖纸色系 ---- */
+  --kh-bg: #f7f6f4;
+  --kh-bg-deep: #f1efeb;
   --kh-panel: #ffffff;
-  --kh-border: #e4e7ed;
-  --kh-text: #303133;
-  --kh-text-sub: #909399;
+  --kh-border: #e8e5df;
+  --kh-border-light: #f3f1ed;
+
+  --kh-text: #1f2328;
+  --kh-text-sub: #6b7280;
+  --kh-text-mute: #9ca3af;
+
+  /* ---- 语义色 ---- */
+  --kh-success: #2f9e6e;
+  --kh-success-soft: #eaf7f1;
+  --kh-warning: #c98a1f;
+  --kh-warning-soft: #fdf5e6;
+  --kh-danger: #cf5b56;
+  --kh-danger-soft: #fdeeee;
+
+  /* ---- 阴影 ---- */
+  --kh-shadow-sm: 0 1px 2px rgba(31, 35, 40, 0.05);
+  --kh-shadow: 0 2px 8px rgba(31, 35, 40, 0.06);
+  --kh-shadow-lg: 0 10px 28px rgba(31, 35, 40, 0.1);
+
+  /* ---- 圆角 ---- */
+  --kh-radius-sm: 6px;
+  --kh-radius: 10px;
+  --kh-radius-lg: 14px;
+
+  /* ---- 尺寸 ---- */
+  --kh-sidebar-w: 232px;
+  --kh-header-h: 58px;
+
+  /* ============================================================
+     Element Plus 主题覆盖
+     ============================================================ */
+  --el-color-primary: #4a5fd6;
+  --el-color-primary-light-3: #808fe2;
+  --el-color-primary-light-5: #a5afeb;
+  --el-color-primary-light-7: #c9cff3;
+  --el-color-primary-light-8: #dbdff7;
+  --el-color-primary-light-9: #edeffb;
+  --el-color-primary-dark-2: #3b4cab;
+
+  --el-color-success: #2f9e6e;
+  --el-color-success-light-9: #eaf7f1;
+  --el-color-warning: #c98a1f;
+  --el-color-warning-light-9: #fdf5e6;
+  --el-color-danger: #cf5b56;
+  --el-color-danger-light-9: #fdeeee;
+  --el-color-info: #6b7280;
+
+  --el-text-color-primary: #1f2328;
+  --el-text-color-regular: #3f4652;
+  --el-text-color-secondary: #6b7280;
+  --el-text-color-placeholder: #9ca3af;
+
+  --el-border-color: #e8e5df;
+  --el-border-color-light: #f0eeea;
+  --el-border-color-lighter: #f3f1ed;
+  --el-fill-color-blank: #ffffff;
+  --el-fill-color-light: #f7f6f4;
+
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+
+  --el-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
 * {
@@ -18,51 +92,339 @@ body,
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--el-font-family);
   color: var(--kh-text);
   background: var(--kh-bg);
   font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
+/* ---------- 滚动条 ---------- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d8d4cd;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c2bdb4;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ============================================================
+   页面骨架
+   ============================================================ */
 .page {
-  padding: 20px 24px;
+  padding: 24px 28px 32px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
 }
 
 .page-title {
-  font-size: 20px;
-  font-weight: 600;
-  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
+  color: var(--kh-text);
 }
 
 .page-sub {
   color: var(--kh-text-sub);
   font-size: 13px;
-  margin-bottom: 18px;
+  margin: 0;
+  line-height: 1.6;
 }
 
+.page-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 4px;
+}
+
+/* ============================================================
+   卡片
+   ============================================================ */
 .card {
   background: var(--kh-panel);
   border: 1px solid var(--kh-border);
-  border-radius: 8px;
-  padding: 16px 18px;
+  border-radius: var(--kh-radius);
+  padding: 18px 20px;
+  box-shadow: var(--kh-shadow-sm);
 }
 
+.card-hover {
+  transition: box-shadow 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+.card-hover:hover {
+  box-shadow: var(--kh-shadow);
+  border-color: var(--kh-primary-border);
+}
+
+.card-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-title .el-icon {
+  color: var(--kh-primary);
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--kh-text-mute);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ============================================================
+   空状态
+   ============================================================ */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 52px 24px;
+  text-align: center;
+}
+
+.empty-state .empty-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  background: var(--kh-primary-soft);
+  color: var(--kh-primary);
+  font-size: 28px;
+  margin-bottom: 16px;
+}
+
+.empty-state .empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.empty-state .empty-desc {
+  color: var(--kh-text-sub);
+  font-size: 13px;
+  max-width: 420px;
+  line-height: 1.7;
+  margin-bottom: 18px;
+}
+
+/* 兼容旧类名 */
+.empty-hint {
+  color: var(--kh-text-mute);
+  text-align: center;
+  padding: 36px 0;
+  font-size: 13px;
+}
+
+/* ============================================================
+   统计卡
+   ============================================================ */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.stat-card {
+  background: var(--kh-panel);
+  border: 1px solid var(--kh-border);
+  border-radius: var(--kh-radius);
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: var(--kh-shadow-sm);
+}
+
+.stat-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  flex-shrink: 0;
+  background: var(--kh-primary-soft);
+  color: var(--kh-primary);
+}
+
+.stat-icon.is-success {
+  background: var(--kh-success-soft);
+  color: var(--kh-success);
+}
+.stat-icon.is-warning {
+  background: var(--kh-warning-soft);
+  color: var(--kh-warning);
+}
+.stat-icon.is-danger {
+  background: var(--kh-danger-soft);
+  color: var(--kh-danger);
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.stat-label {
+  color: var(--kh-text-sub);
+  font-size: 12.5px;
+  margin-top: 2px;
+}
+
+/* ============================================================
+   工具类
+   ============================================================ */
+.mt {
+  margin-top: 16px;
+}
+.mt-sm {
+  margin-top: 12px;
+}
+.mt-lg {
+  margin-top: 24px;
+}
 .mono {
   font-family: 'Cascadia Code', Consolas, Monaco, 'Courier New', monospace;
 }
+.muted {
+  color: var(--kh-text-sub);
+}
+.text-mute {
+  color: var(--kh-text-mute);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.spacer {
+  flex: 1;
+}
+.hint {
+  color: var(--kh-text-sub);
+  font-size: 12px;
+}
+.divider-y {
+  height: 1px;
+  background: var(--kh-border-light);
+  margin: 16px 0;
+}
 
+/* ============================================================
+   Markdown 渲染
+   ============================================================ */
 .markdown-body {
-  line-height: 1.75;
+  line-height: 1.78;
   word-break: break-word;
+  font-size: 14px;
+}
+
+.markdown-body > *:first-child {
+  margin-top: 0;
+}
+.markdown-body > *:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  font-weight: 650;
+  line-height: 1.4;
+  margin: 20px 0 10px;
+}
+
+.markdown-body h1 {
+  font-size: 19px;
+}
+.markdown-body h2 {
+  font-size: 17px;
+}
+.markdown-body h3 {
+  font-size: 15px;
+}
+.markdown-body h4 {
+  font-size: 14px;
+}
+
+.markdown-body p {
+  margin: 0 0 10px;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 22px;
+  margin: 0 0 10px;
+}
+
+.markdown-body li {
+  margin-bottom: 4px;
+}
+
+.markdown-body a {
+  color: var(--kh-primary);
+  text-decoration: none;
+}
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.markdown-body blockquote {
+  margin: 10px 0;
+  padding: 8px 14px;
+  border-left: 3px solid var(--kh-primary-border);
+  background: var(--kh-primary-soft);
+  border-radius: 0 var(--kh-radius-sm) var(--kh-radius-sm) 0;
+  color: var(--kh-text-sub);
 }
 
 .markdown-body pre {
-  background: #f6f8fa;
+  background: #f8f8f6;
   border: 1px solid var(--kh-border);
-  border-radius: 6px;
-  padding: 12px;
+  border-radius: var(--kh-radius-sm);
+  padding: 12px 14px;
   overflow: auto;
+  margin: 10px 0;
 }
 
 .markdown-body code {
@@ -71,23 +433,68 @@ body {
 }
 
 .markdown-body :not(pre) > code {
-  background: #f2f3f5;
-  padding: 1px 5px;
-  border-radius: 4px;
+  background: #f2f0ec;
+  padding: 1.5px 6px;
+  border-radius: 5px;
+  color: #b3524d;
 }
 
 .markdown-body table {
   border-collapse: collapse;
+  margin: 10px 0;
+  width: 100%;
+  font-size: 13px;
 }
 
 .markdown-body th,
 .markdown-body td {
   border: 1px solid var(--kh-border);
-  padding: 6px 10px;
+  padding: 7px 11px;
+  text-align: left;
 }
 
-.empty-hint {
+.markdown-body th {
+  background: var(--kh-bg);
+  font-weight: 600;
+}
+
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--kh-border);
+  margin: 16px 0;
+}
+
+/* ============================================================
+   Element Plus 细节微调
+   ============================================================ */
+.el-button {
+  font-weight: 500;
+}
+
+.el-card,
+.el-dialog {
+  border-radius: var(--kh-radius);
+}
+
+.el-table th.el-table__cell {
+  background: var(--kh-bg) !important;
+  font-weight: 600;
   color: var(--kh-text-sub);
-  text-align: center;
-  padding: 40px 0;
+}
+
+.el-table {
+  --el-table-border-color: var(--kh-border-light);
+}
+
+.el-descriptions__label {
+  color: var(--kh-text-sub) !important;
+  font-weight: 500 !important;
+}
+
+.el-menu {
+  border-right: none !important;
+}
+
+.el-tag {
+  font-weight: 500;
 }

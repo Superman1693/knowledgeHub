@@ -1,7 +1,11 @@
 <template>
   <div class="page">
-    <h2 class="page-title">分类管理</h2>
-    <p class="page-sub">用分类组织知识。删除分类只会解除关联，不会删除文档</p>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">分类管理</h1>
+        <p class="page-sub">用分类组织知识。删除分类只会解除关联，不会删除文档</p>
+      </div>
+    </div>
 
     <div class="card">
       <div class="row">
@@ -23,7 +27,15 @@
             <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
-        <template #empty><div class="empty-hint">还没有分类</div></template>
+        <template #empty>
+          <div class="empty-state">
+            <div class="empty-icon"><el-icon><FolderOpened /></el-icon></div>
+            <div class="empty-title">还没有分类</div>
+            <div class="empty-desc">
+              分类适合做粗粒度的知识分区（如「工作」「学习」「生活」）。一篇文档只能属于一个分类。
+            </div>
+          </div>
+        </template>
       </el-table>
     </div>
   </div>

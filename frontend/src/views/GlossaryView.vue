@@ -1,9 +1,13 @@
 <template>
   <div class="page">
-    <h2 class="page-title">专属术语词典</h2>
-    <p class="page-sub">
-      定义技术缩写、项目自定义名词、框架术语与个人习惯用语。问答时会优先采用词典中的定义
-    </p>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">术语词典</h1>
+        <p class="page-sub">
+          定义技术缩写、项目自定义名词、框架术语与个人习惯用语。问答时会优先采用词典中的定义
+        </p>
+      </div>
+    </div>
 
     <div class="card">
       <div class="row">
@@ -40,7 +44,17 @@
             <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
-        <template #empty><div class="empty-hint">还没有术语，先新增一条吧</div></template>
+        <template #empty>
+          <div class="empty-state">
+            <div class="empty-icon"><el-icon><Notebook /></el-icon></div>
+            <div class="empty-title">还没有术语</div>
+            <div class="empty-desc">
+              把项目里的缩写、内部代号、个人习惯用语录进来，问答时模型会优先采用你的定义，
+              避免望文生义。别名可以填写多种写法，提高命中率。
+            </div>
+            <el-button type="primary" @click="openCreate">新增第一条术语</el-button>
+          </div>
+        </template>
       </el-table>
     </div>
 

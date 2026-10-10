@@ -1,9 +1,13 @@
 <template>
   <div class="page">
-    <h2 class="page-title">后续扩展</h2>
-    <p class="page-sub">
-      以下模块已在规格文档中规划，将作为独立的 Feature Spec 逐步实现。当前版本聚焦核心闭环
-    </p>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">后续扩展</h1>
+        <p class="page-sub">
+          以下模块已在规格文档中规划，将作为独立的 Feature Spec 逐步实现。当前版本聚焦核心闭环
+        </p>
+      </div>
+    </div>
 
     <el-row :gutter="16">
       <el-col :span="8" v-for="group in groups" :key="group.name">

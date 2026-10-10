@@ -1,7 +1,11 @@
 <template>
   <div class="page" v-loading="loading">
-    <h2 class="page-title">系统设置</h2>
-    <p class="page-sub">配置 AI 服务、检索参数与本地运行选项。密钥写入 .env，其余存入本地数据库</p>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">系统设置</h1>
+        <p class="page-sub">配置 AI 服务、检索参数与本地运行选项。密钥写入 .env，其余存入本地数据库</p>
+      </div>
+    </div>
 
     <div class="card">
       <div class="section-title">AI 服务</div>

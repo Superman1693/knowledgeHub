@@ -1,7 +1,11 @@
 <template>
   <div class="page">
-    <h2 class="page-title">标签管理</h2>
-    <p class="page-sub">为文档打标签，支持自动推荐与相似标签检测</p>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">标签管理</h1>
+        <p class="page-sub">为文档打标签，支持自动推荐与相似标签检测。一篇文档可以有多个标签</p>
+      </div>
+    </div>
 
     <div class="card">
       <div class="row">
@@ -31,7 +35,16 @@
             <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
-        <template #empty><div class="empty-hint">还没有标签</div></template>
+        <template #empty>
+          <div class="empty-state">
+            <div class="empty-icon"><el-icon><PriceTag /></el-icon></div>
+            <div class="empty-title">还没有标签</div>
+            <div class="empty-desc">
+              标签适合做细粒度的交叉标记（如「Vue3」「性能优化」）。
+              也可以在文档详情页用「推荐标签」自动生成。
+            </div>
+          </div>
+        </template>
       </el-table>
     </div>
   </div>

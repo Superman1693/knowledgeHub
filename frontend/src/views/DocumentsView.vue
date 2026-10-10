@@ -1,7 +1,17 @@
 <template>
   <div class="page">
-    <h2 class="page-title">文档管理</h2>
-    <p class="page-sub">浏览、筛选、预览、删除与导出你的本地文档</p>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">文档管理</h1>
+        <p class="page-sub">浏览、筛选、预览、删除与导出你的本地文档</p>
+      </div>
+      <div class="page-actions">
+        <el-button type="primary" @click="$router.push('/upload')">
+          <el-icon><UploadFilled /></el-icon>
+          <span>导入文档</span>
+        </el-button>
+      </div>
+    </div>
 
     <div class="card toolbar">
       <el-input v-model="filters.q" placeholder="搜索标题 / 文件名" clearable style="width: 220px" @keyup.enter="reload" />
@@ -16,7 +26,6 @@
         <el-option label="按创建时间" value="created_at" />
       </el-select>
       <el-button type="primary" @click="reload"><el-icon><Search /></el-icon>查询</el-button>
-      <el-button @click="$router.push('/upload')"><el-icon><UploadFilled /></el-icon>导入</el-button>
     </div>
 
     <div class="card mt">
@@ -48,7 +57,25 @@
             <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
-        <template #empty><div class="empty-hint">暂无文档</div></template>
+        <template #empty>
+          <div class="empty-state">
+            <div class="empty-icon"><el-icon><FolderOpened /></el-icon></div>
+            <div class="empty-title">
+              {{ hasFilter ? '没有匹配的文档' : '还没有文档' }}
+            </div>
+            <div class="empty-desc">
+              {{
+                hasFilter
+                  ? '试试换个关键词，或清空筛选条件重新查找。'
+                  : '导入 Markdown、TXT、PDF、Word 或代码文件，系统会自动解析并建立索引。'
+              }}
+            </div>
+            <el-button v-if="hasFilter" @click="resetFilters">清空筛选</el-button>
+            <el-button v-else type="primary" @click="$router.push('/upload')">
+              <el-icon><UploadFilled /></el-icon> 导入文档
+            </el-button>
+          </div>
+        </template>
       </el-table>
 
       <el-pagination
@@ -64,8 +91,9 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { FolderOpened, UploadFilled } from '@element-plus/icons-vue'
 import { categoriesApi, documentsApi, tagsApi } from '@/api'
 import type { Category, DocumentOut, Tag } from '@/api/types'
 import { docStatusText as statusText, docStatusType as statusType } from '@/utils/status'
@@ -84,6 +112,19 @@ const filters = reactive({
   page: 1,
   page_size: 20,
 })
+
+/** 是否处于筛选状态（用于区分「空库」与「无匹配结果」） */
+const hasFilter = computed(
+  () => Boolean(filters.q || filters.category_id || filters.tag),
+)
+
+function resetFilters() {
+  filters.q = ''
+  filters.category_id = null
+  filters.tag = null
+  filters.page = 1
+  reload()
+}
 
 const fmt = (v: string) => new Date(v).toLocaleString('zh-CN')
 

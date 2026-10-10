@@ -1,7 +1,13 @@
 <template>
   <div class="page">
-    <h2 class="page-title">知识检索</h2>
-    <p class="page-sub">关键词（pg_trgm）+ 语义（pgvector）混合检索，结果可定位到原文</p>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">知识检索</h1>
+        <p class="page-sub">
+          不调用 AI 也能直接查资料，结果可定位到原文片段
+        </p>
+      </div>
+    </div>
 
     <div class="card">
       <div class="row">
@@ -48,8 +54,43 @@
         <div class="hit-snippet">{{ hit.snippet }}</div>
       </div>
 
-      <div v-if="!result?.hits.length" class="empty-hint">
-        没有找到相关片段。可尝试更换关键词，或改用「混合检索」模式。
+      <div v-if="!result?.hits.length" class="empty-state">
+        <div class="empty-icon"><el-icon><Search /></el-icon></div>
+        <div class="empty-title">没有找到相关片段</div>
+        <div class="empty-desc">
+          可以试试：换用更口语化的描述（走语义检索）、减少限定词，
+          或者确认相关文档是否已完成索引。
+        </div>
+      </div>
+    </div>
+
+    <!-- 未检索时：说明三种模式的区别，降低理解成本 -->
+    <div v-if="!searched" class="card mt">
+      <div class="card-title">
+        <el-icon><InfoFilled /></el-icon>三种检索模式怎么选
+      </div>
+      <div class="mode-guide">
+        <div class="mode-item">
+          <div class="mode-name">关键词检索</div>
+          <div class="mode-desc">
+            按字面分词命中，快且精确。适合查具体名词、报错信息、函数名。
+          </div>
+        </div>
+        <div class="mode-item">
+          <div class="mode-name">语义检索</div>
+          <div class="mode-desc">
+            按向量相似度找「意思相近」的片段。适合用大白话描述一个概念。
+          </div>
+        </div>
+        <div class="mode-item is-recommended">
+          <div class="mode-name">
+            混合检索
+            <span class="rec-tag">推荐</span>
+          </div>
+          <div class="mode-desc">
+            关键词与语义加权融合（0.3 / 0.7），兼顾精确与联想，大多数情况效果最好。
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -124,15 +165,58 @@ onMounted(async () => {
   margin-bottom: 6px;
 }
 .hit-index {
-  color: #409eff;
+  color: var(--kh-primary);
   font-weight: 600;
 }
 .hit-snippet {
-  color: #606266;
-  line-height: 1.7;
+  color: #3f4652;
+  line-height: 1.72;
 }
 .muted {
   color: var(--kh-text-sub);
   font-size: 12px;
+}
+
+/* ---- 模式说明 ---- */
+.mode-guide {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.mode-item {
+  border: 1px solid var(--kh-border);
+  border-radius: var(--kh-radius);
+  padding: 14px 15px;
+  background: var(--kh-panel);
+}
+
+.mode-item.is-recommended {
+  border-color: var(--kh-primary-border);
+  background: var(--kh-primary-soft);
+}
+
+.mode-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.rec-tag {
+  font-size: 11px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--kh-primary);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.mode-desc {
+  font-size: 12.5px;
+  color: var(--kh-text-sub);
+  line-height: 1.62;
 }
 </style>

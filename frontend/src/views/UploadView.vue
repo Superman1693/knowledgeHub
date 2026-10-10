@@ -1,7 +1,11 @@
 <template>
   <div class="page">
-    <h2 class="page-title">导入文档</h2>
-    <p class="page-sub">支持 Markdown、文本、PDF、Word、代码等多种格式，拖拽即可导入</p>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">导入文档</h1>
+        <p class="page-sub">支持 Markdown、文本、PDF、Word、代码等多种格式，拖拽即可导入</p>
+      </div>
+    </div>
 
     <div class="card">
       <el-upload

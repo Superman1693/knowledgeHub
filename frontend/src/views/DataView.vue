@@ -1,7 +1,11 @@
 <template>
   <div class="page" v-loading="loading">
-    <h2 class="page-title">数据与备份</h2>
-    <p class="page-sub">所有数据保存在本机数据目录。备份包含数据库记录与原始文件</p>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">数据与备份</h1>
+        <p class="page-sub">所有数据保存在本机数据目录。备份包含数据库记录与原始文件</p>
+      </div>
+    </div>
 
     <div class="card">
       <div class="section-title">数据目录</div>
