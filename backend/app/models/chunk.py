@@ -44,4 +44,13 @@ class Chunk(Base, IdMixin, TimestampMixin):
         Vector(settings.embedding_dim), nullable=True
     )
 
+    # 父子检索：子块（有 embedding）用于检索，parent_id 指向的父块（无 embedding）
+    # 用于回传给模型以补足上下文。父块自身与单级分块的片段该列为 NULL。
+    # 外键必须显式命名：否则 autogenerate 会渲染出 drop_constraint(None) 使迁移失败。
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chunks.id", ondelete="CASCADE", name="fk_chunks_parent_id"),
+        nullable=True,
+        index=True,
+    )
+
     document = relationship("Document", back_populates="chunks")

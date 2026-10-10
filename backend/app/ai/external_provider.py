@@ -11,6 +11,28 @@ from app.core.config import settings
 from app.core.exceptions import AIUnavailableError
 
 
+def _error_detail(resp: httpx.Response) -> str:
+    """从错误响应中提取可读原因。
+
+    多数 OpenAI 兼容服务把原因放在 `error.message` 里（例如
+    "batch size ... should not be larger than 20"）。若只透出
+    `raise_for_status()` 的 "400 Bad Request"，用户无法定位问题。
+    """
+    try:
+        payload = resp.json()
+    except Exception:  # noqa: BLE001
+        return resp.text[:300]
+    if isinstance(payload, dict):
+        err = payload.get("error")
+        if isinstance(err, dict) and err.get("message"):
+            return str(err["message"])[:300]
+        if isinstance(err, str):
+            return err[:300]
+        if payload.get("message"):
+            return str(payload["message"])[:300]
+    return resp.text[:300]
+
+
 class ExternalProvider(AIProvider):
     name = "external"
 
@@ -127,19 +149,42 @@ class ExternalProvider(AIProvider):
     async def embed(
         self, texts: list[str], model: str | None = None
     ) -> list[list[float]]:
+        """批量生成嵌入，按 `embedding_batch_size` 自动分批。
+
+        部分 OpenAI 兼容服务限制单次批量大小（如通义千问 MaaS 为 20 条），
+        一次性提交全部片段会直接返回 400，表现为「文档一大就索引失败」。
+        """
         self._require_config()
         model = model or settings.embedding_model
         if not model:
             raise AIUnavailableError("未配置嵌入模型（EMBEDDING_MODEL 为空）")
+        if not texts:
+            return []
+
+        size = max(1, settings.embedding_batch_size)
+        out: list[list[float]] = []
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(
-                    f"{self.base}/embeddings",
-                    headers=self._headers,
-                    json={"model": model, "input": texts},
-                )
-                resp.raise_for_status()
-                data = resp.json().get("data", [])
-                return [item["embedding"] for item in data]
+                for start in range(0, len(texts), size):
+                    batch = texts[start : start + size]
+                    resp = await client.post(
+                        f"{self.base}/embeddings",
+                        headers=self._headers,
+                        json={"model": model, "input": batch},
+                    )
+                    if resp.status_code >= 400:
+                        raise AIUnavailableError(
+                            f"外部嵌入调用失败（HTTP {resp.status_code}，"
+                            f"第 {start + 1}~{start + len(batch)}/{len(texts)} 条）："
+                            f"{_error_detail(resp)}"
+                        )
+                    data = resp.json().get("data", [])
+                    if len(data) != len(batch):
+                        # 数量不匹配会让向量与片段错位，宁可失败也不写入错误索引
+                        raise AIUnavailableError(
+                            f"嵌入返回数量不匹配：请求 {len(batch)} 条，返回 {len(data)} 条"
+                        )
+                    out.extend(item["embedding"] for item in data)
         except httpx.HTTPError as exc:
             raise AIUnavailableError(f"外部嵌入调用失败：{exc}") from exc
+        return out

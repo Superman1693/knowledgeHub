@@ -30,7 +30,7 @@ def test_health(client: TestClient) -> None:
     body = resp.json()
     assert "database_ok" in body
     assert "storage_mode" in body
-    assert body["storage_mode"] in ("postgres", "sqlite")
+    assert body["storage_mode"] == "postgres"
 
 
 def test_settings_get(client: TestClient) -> None:

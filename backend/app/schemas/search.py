@@ -27,6 +27,10 @@ class SearchHit(BaseModel):
     score: float
     keyword_score: float | None = None
     semantic_score: float | None = None
+    # 父子检索：命中片段所属父块的内容，用于回传给模型补足上下文。
+    # 未开启父子检索时为 None，此时 snippet 所在片段本身即完整内容。
+    parent_id: uuid.UUID | None = None
+    parent_content: str | None = None
 
 
 class SearchResponse(BaseModel):

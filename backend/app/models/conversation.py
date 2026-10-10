@@ -42,6 +42,8 @@ class Message(Base, IdMixin):
     sources: Mapped[list | None] = mapped_column(JSON)
     # 原文 | 归纳 | 联网 | 混合
     source_type: Mapped[str | None] = mapped_column(String(16))
+    # 推理模型的思考过程（reasoning_content）。仅用于界面回看，不计入回答正文与引用
+    reasoning: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

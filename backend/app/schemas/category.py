@@ -51,3 +51,5 @@ class TagSuggestRequest(BaseModel):
     document_id: uuid.UUID | None = None
     text: str | None = None
     limit: int = Field(default=8, ge=1, le=30)
+    # True 时调用对话模型按主题推荐（更准，需已配置模型）；False 走词频启发式
+    use_ai: bool = False

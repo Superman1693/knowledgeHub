@@ -8,10 +8,11 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.models import Chunk
 from app.rag.tokenize import extract_terms
 from app.schemas.search import SearchHit
 
@@ -27,6 +28,25 @@ class _Row:
     page_no: int | None
     content: str
     score: float
+    parent_id: uuid.UUID | None = None
+    parent_content: str | None = None
+
+
+def _attach_parents(db: Session, rows: list[_Row]) -> None:
+    """为命中片段补上父块内容（父子检索用），原地修改 rows。
+
+    检索命中「子块」，但回传给模型的是其所属「父块」—— 子块精准匹配、
+    父块上下文完整。未开启父子检索时 parent_id 全为 None，此处直接跳过。
+    """
+    ids = {r.parent_id for r in rows if r.parent_id}
+    if not ids:
+        return
+    contents = dict(
+        db.execute(select(Chunk.id, Chunk.content).where(Chunk.id.in_(ids))).all()
+    )
+    for r in rows:
+        if r.parent_id:
+            r.parent_content = contents.get(r.parent_id)
 
 
 def _build_filters(
@@ -69,6 +89,7 @@ def keyword_search(
         f"""
         WITH q AS (SELECT unnest(CAST(:terms AS text[])) AS term)
         SELECT c.id AS chunk_id, c.document_id, d.title, c.heading, c.page_no, c.content,
+               c.parent_id,
                (SELECT count(*) FROM q
                  WHERE c.content ILIKE '%' || q.term || '%'
                     OR c.heading  ILIKE '%' || q.term || '%') AS hit_terms,
@@ -80,6 +101,8 @@ def keyword_search(
              WHERE c.content ILIKE '%' || q.term || '%'
                 OR c.heading  ILIKE '%' || q.term || '%'
         )
+        -- 父块是子块内容的拼接，不参与检索，否则同一段内容会命中两次
+        AND c.id NOT IN (SELECT parent_id FROM chunks WHERE parent_id IS NOT NULL)
         {filt}
         ORDER BY hit_terms DESC, sim DESC
         LIMIT :lim
@@ -89,7 +112,7 @@ def keyword_search(
     rows = db.execute(sql, params).mappings().all()
 
     total_terms = len(terms)
-    return [
+    out = [
         _Row(
             chunk_id=r["chunk_id"],
             document_id=r["document_id"],
@@ -99,9 +122,12 @@ def keyword_search(
             content=r["content"],
             # 命中词占比（0~1）+ 整体相似度（0~1）
             score=float(r["hit_terms"]) / total_terms + float(r["sim"] or 0.0),
+            parent_id=r["parent_id"],
         )
         for r in rows
     ]
+    _attach_parents(db, out)
+    return out
 
 
 def semantic_search(
@@ -117,6 +143,7 @@ def semantic_search(
     sql = text(
         f"""
         SELECT c.id AS chunk_id, c.document_id, d.title, c.heading, c.page_no, c.content,
+               c.parent_id,
                1 - (c.embedding <=> CAST(:vec AS vector)) AS sim
         FROM chunks c
         JOIN documents d ON d.id = c.document_id
@@ -128,7 +155,7 @@ def semantic_search(
     )
     params.update({"vec": vec_literal, "lim": limit})
     rows = db.execute(sql, params).mappings().all()
-    return [
+    out = [
         _Row(
             chunk_id=r["chunk_id"],
             document_id=r["document_id"],
@@ -137,9 +164,12 @@ def semantic_search(
             page_no=r["page_no"],
             content=r["content"],
             score=float(r["sim"] or 0.0),
+            parent_id=r["parent_id"],
         )
         for r in rows
     ]
+    _attach_parents(db, out)
+    return out
 
 
 def _normalize(rows: list[_Row]) -> dict[uuid.UUID, float]:
@@ -167,7 +197,26 @@ def _to_hit(row: _Row, score: float, kw: float | None, sem: float | None) -> Sea
         score=round(score, 4),
         keyword_score=round(kw, 4) if kw is not None else None,
         semantic_score=round(sem, 4) if sem is not None else None,
+        parent_id=row.parent_id,
+        parent_content=row.parent_content,
     )
+
+
+def _dedupe_by_parent(hits: list[SearchHit]) -> list[SearchHit]:
+    """父子检索去重：同一父块下的多个子块只保留得分最高的一条。
+
+    hits 已按得分降序排列，故首次出现的即为该父块的最佳命中。
+    不去重的话，一个父块会被重复回传，白白占用模型上下文。
+    """
+    seen: set[uuid.UUID] = set()
+    out: list[SearchHit] = []
+    for h in hits:
+        key = h.parent_id or h.chunk_id
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(h)
+    return out
 
 
 def hybrid_search(
@@ -206,20 +255,24 @@ def hybrid_search(
         scored.append((score, row, kw, sem))
 
     scored.sort(key=lambda x: x[0], reverse=True)
-    return [_to_hit(row, score, kw, sem) for score, row, kw, sem in scored[:k]]
+    # 先去重再截断：否则同一父块的多个子块会挤占 top-k 名额
+    hits = [_to_hit(row, score, kw, sem) for score, row, kw, sem in scored]
+    return _dedupe_by_parent(hits)[:k]
 
 
 def keyword_only(
     db: Session, query: str, top_k: int, category_id=None, tags=None
 ) -> list[SearchHit]:
-    rows = keyword_search(db, query, top_k, category_id, tags)
+    rows = keyword_search(db, query, max(top_k * 3, top_k + 10), category_id, tags)
     norm = _normalize(rows)
-    return [_to_hit(r, norm.get(r.chunk_id, r.score), r.score, None) for r in rows]
+    hits = [_to_hit(r, norm.get(r.chunk_id, r.score), r.score, None) for r in rows]
+    return _dedupe_by_parent(hits)[:top_k]
 
 
 def semantic_only(
     db: Session, query_vec: list[float], top_k: int, category_id=None, tags=None
 ) -> list[SearchHit]:
-    rows = semantic_search(db, query_vec, top_k, category_id, tags)
+    rows = semantic_search(db, query_vec, max(top_k * 3, top_k + 10), category_id, tags)
     norm = _normalize(rows)
-    return [_to_hit(r, norm.get(r.chunk_id, r.score), None, r.score) for r in rows]
+    hits = [_to_hit(r, norm.get(r.chunk_id, r.score), None, r.score) for r in rows]
+    return _dedupe_by_parent(hits)[:top_k]

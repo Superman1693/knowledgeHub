@@ -30,11 +30,12 @@ class Settings(BaseSettings):
     db_name: str = "knowledgehub"
     db_user: str = "kh_app"
     db_password: str = ""
-    # 若显式提供 database_url，则优先使用（便于切换回退方案）
+    # 若显式提供 database_url，则优先使用（便于连接非默认地址的 PostgreSQL）
     database_url: str | None = None
 
     # ---------- 存储模式 ----------
-    # postgres | sqlite（sqlite 为回退方案，需安装 requirements-fallback.txt）
+    # 当前版本仅支持 PostgreSQL 18 + pgvector（关系 + 向量 + 关键词一体）。
+    # 原「SQLite + ChromaDB 回退方案」已取消，不再作为可选路径。
     storage_mode: str = "postgres"
 
     # ---------- 数据目录 ----------
@@ -60,24 +61,46 @@ class Settings(BaseSettings):
     # 嵌入服务可与对话服务分离（留空则复用对话服务的地址与密钥）
     embedding_base_url: str = ""
     embedding_api_key: str = ""
+    # 单次嵌入请求的最大条数。部分 OpenAI 兼容服务限制批量大小（如通义千问 MaaS
+    # 为 20 条），超出会直接返回 400；此处留出余量并统一分批。
+    embedding_batch_size: int = 16
     request_timeout: int = 60
     default_answer_mode: str = "detail"  # detail | brief | example
+
+    # ---------- 联网补充（需求 14.4 / 14.5）----------
+    # 默认关闭：未启用时系统绝不联网，也不会伪称已联网
+    web_search_enabled: bool = False
+    # bing（默认，国内可直连）| duckduckgo（需外网）| custom（自备搜索 API）
+    web_search_provider: str = "bing"
+    web_search_api_url: str = ""
+    web_search_api_key: str = ""
+    web_search_top_k: int = 5
 
     # ---------- 检索参数 ----------
     hybrid_alpha: float = 0.3  # 关键词权重
     hybrid_beta: float = 0.7  # 语义权重
     search_top_k: int = 8
-    chunk_size: int = 800  # 分块目标字符数
-    chunk_overlap: int = 100
+    # 子块目标长度（检索粒度）：小块语义集中，向量匹配更精准
+    chunk_size: int = 400
+    chunk_overlap: int = 80
+    # 分块方式：
+    #   rule     = 按标题/段落/句子（毫秒级、零成本、确定性）—— 兜底方案
+    #   semantic = 嵌入模型算相邻句相似度，在话题断点处切（推荐：效果好且只消耗嵌入调用）
+    #   ai       = 对话模型直接判断语义边界（最准但最贵，适合结构混乱的文档）
+    # semantic / ai 失败或超限时都会自动回退 rule，保证索引流程不中断
+    chunk_mode: str = "semantic"
+    # 父子检索：子块用于向量检索（精准），命中后回传其所属父块给模型（上下文完整）。
+    # 关闭时退化为单级分块，行为与旧版一致。
+    parent_child_enabled: bool = True
+    # 父块目标长度（回传粒度）
+    parent_chunk_size: int = 1500
 
     # ---------- 派生属性 ----------
     @property
     def resolved_database_url(self) -> str:
-        """返回实际使用的 SQLAlchemy 连接串。"""
+        """返回实际使用的 SQLAlchemy 连接串（PostgreSQL + pgvector）。"""
         if self.database_url:
             return self.database_url
-        if self.storage_mode == "sqlite":
-            return f"sqlite:///{self.data_path / 'app.db'}"
         return (
             f"postgresql+psycopg://{self.db_user}:{self.db_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
@@ -118,6 +141,16 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def storage_mode_valid(self) -> bool:
+        """校验存储模式配置。
+
+        本项目统一使用本机已安装的 PostgreSQL 18 + pgvector（关系 + 向量 + 关键词
+        一库覆盖）。配置成其它值（如历史遗留的 `sqlite`）时显式返回 False，
+        让启动日志与 `/api/health` **明确报错**，而不是静默退化。
+        """
+        return (self.storage_mode or "postgres").strip().lower() == "postgres"
 
     @property
     def max_upload_bytes(self) -> int:

@@ -40,7 +40,7 @@
       <div v-for="(hit, i) in result?.hits ?? []" :key="hit.chunk_id" class="hit">
         <div class="hit-head">
           <span class="hit-index">[{{ i + 1 }}]</span>
-          <el-link type="primary" @click="$router.push(`/documents/${hit.document_id}`)">
+          <el-link type="primary" @click="openHit(hit)">
             {{ hit.document_title }}
           </el-link>
           <el-tag v-if="hit.heading" size="small" effect="plain">{{ hit.heading }}</el-tag>
@@ -98,9 +98,11 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { categoriesApi, searchApi } from '@/api'
-import type { Category, SearchResponse } from '@/api/types'
+import type { Category, SearchHit, SearchResponse } from '@/api/types'
 
+const router = useRouter()
 const query = ref('')
 const mode = ref('hybrid')
 const categoryId = ref<string | null>(null)
@@ -112,6 +114,14 @@ const categories = ref<Category[]>([])
 const modeLabel = computed(
   () => ({ hybrid: '混合检索', keyword: '关键词检索', semantic: '语义检索' })[mode.value] ?? mode.value,
 )
+
+/** 打开命中片段所在的文档，并定位到该片段（需求 11.7）。 */
+function openHit(hit: SearchHit) {
+  router.push({
+    path: `/documents/${hit.document_id}`,
+    query: { chunk: hit.chunk_id },
+  })
+}
 
 async function doSearch() {
   if (!query.value.trim()) return

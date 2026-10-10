@@ -145,6 +145,27 @@ def get_document(db: Session, document_id: uuid.UUID) -> Document:
     return doc
 
 
+def list_chunks(db: Session, document_id: uuid.UUID) -> list[Chunk]:
+    """返回文档的知识片段（按片段序号升序）。
+
+    用于引用定位：前端据片段 ID 滚动到对应位置并高亮。
+    父子检索下只返回**子块**（真正参与检索的片段）；父块是子块内容的拼接，
+    仅用于回传给模型，不在片段列表中展示，否则同一段内容会出现两次。
+    """
+    get_document(db, document_id)
+    parent_ids = select(Chunk.parent_id).where(Chunk.parent_id.is_not(None))
+    return list(
+        db.execute(
+            select(Chunk)
+            .where(Chunk.document_id == document_id)
+            .where(Chunk.id.not_in(parent_ids))
+            .order_by(Chunk.chunk_index)
+        )
+        .scalars()
+        .all()
+    )
+
+
 def update_document(
     db: Session,
     document_id: uuid.UUID,

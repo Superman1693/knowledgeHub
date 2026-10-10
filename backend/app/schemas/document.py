@@ -33,6 +33,21 @@ class DocumentDetail(DocumentOut):
     content_text: str | None = None
 
 
+class ChunkOut(BaseModel):
+    """知识片段（用于引用定位与片段预览）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    chunk_index: int
+    heading: str | None = None
+    page_no: int | None = None
+    content: str
+    token_count: int
+    # 是否已生成向量（未配置嵌入模型时为 False）
+    has_embedding: bool = False
+
+
 class DocumentListOut(BaseModel):
     total: int
     page: int

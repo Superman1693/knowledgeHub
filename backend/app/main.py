@@ -39,6 +39,12 @@ async def lifespan(_: FastAPI):
         logger.warning("加载配置覆盖失败（可能数据库未初始化）：%s", exc)
     finally:
         db.close()
+    if not settings.storage_mode_valid:
+        logger.error(
+            "不支持的存储模式 %s：本项目统一使用本机 PostgreSQL 18 + pgvector，"
+            "请将 .env 中的 STORAGE_MODE 设为 postgres 后重启。",
+            settings.storage_mode,
+        )
     logger.info("KnowledgeHub 后端已启动，数据目录：%s", settings.data_path)
     yield
     logger.info("KnowledgeHub 后端已停止")

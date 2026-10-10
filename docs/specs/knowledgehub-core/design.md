@@ -14,7 +14,7 @@
 | 模块清晰 | 前后端分层，后端按功能划分模块，单一职责 |
 | 可测试 | 业务逻辑与 HTTP、数据库可分离测试 |
 | 可扩展 | 新增文件格式、模型、检索策略时无需改动核心流程 |
-| 可回退 | 本机无合适存储时可切换到 SQLite + ChromaDB |
+| 存储统一 | PostgreSQL 18 + pgvector，一个库覆盖关系 + 向量 + 关键词 |
 
 ---
 
@@ -473,7 +473,7 @@ GRANT ALL PRIVILEGES ON DATABASE knowledgehub TO kh_app;
 | `REQUEST_TIMEOUT` | 请求超时（秒） | `60` |
 | `MAX_UPLOAD_MB` | 上传大小上限 | `50` |
 | `HYBRID_ALPHA` / `HYBRID_BETA` | 混合检索权重 | `0.3` / `0.7` |
-| `STORAGE_MODE` | `postgres` / `sqlite` | `postgres` |
+| `STORAGE_MODE` | `postgres`（唯一支持值） | `postgres` |
 
 > `.env` 受 `.gitignore` 保护；必须提供 `.env.example` 模板。
 
@@ -501,14 +501,15 @@ GRANT ALL PRIVILEGES ON DATABASE knowledgehub TO kh_app;
 
 ---
 
-## 14. 与回退方案（SQLite + ChromaDB）的差异
+## 14. 存储方案说明
 
-| 维度 | 主方案 | 回退方案 |
-|---|---|---|
-| 关系数据 | PostgreSQL | SQLite |
-| 向量 | pgvector | ChromaDB |
-| 关键词 | pg_trgm | SQLite FTS / LIKE |
-| 迁移 | Alembic（PG 方言） | Alembic（SQLite 方言） |
-| 切换 | 由 `STORAGE_MODE` 决定 | 同左 |
+本项目**统一使用本机已安装的 PostgreSQL 18 + pgvector**，一个数据库同时承担三类职责：
 
-回退仅在目标机器**无合适 PostgreSQL** 时启用；本机已具备，默认不启用。
+| 维度 | 实现 |
+|---|---|
+| 关系数据 | PostgreSQL（documents / chunks / categories / tags / document_tags / conversations / messages / app_settings / glossary_terms） |
+| 向量 | pgvector `vector(dim)` 列 + HNSW 索引 |
+| 关键词 | pg_trgm GIN 索引（ILIKE 子串 + similarity 相似度） |
+| 迁移 | Alembic（PostgreSQL 方言） |
+
+选型理由：本机已具备且正在运行，一个库覆盖三类职责，无需额外维护独立向量数据库；项目为单用户本地场景，资源占用完全可接受。

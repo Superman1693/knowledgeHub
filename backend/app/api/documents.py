@@ -10,7 +10,13 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.exceptions import ValidationError
-from app.schemas.document import DocumentDetail, DocumentListOut, DocumentOut, DocumentUpdate
+from app.schemas.document import (
+    ChunkOut,
+    DocumentDetail,
+    DocumentListOut,
+    DocumentOut,
+    DocumentUpdate,
+)
 from app.services import document_service
 from app.storage import files
 
@@ -69,6 +75,40 @@ def list_documents(
 def get_document(document_id: uuid.UUID, db: Session = Depends(get_db)) -> DocumentDetail:
     doc = document_service.get_document(db, document_id)
     return DocumentDetail.model_validate(doc)
+
+
+@router.get("/{document_id}/chunks", response_model=list[ChunkOut])
+def list_chunks(document_id: uuid.UUID, db: Session = Depends(get_db)) -> list[ChunkOut]:
+    """文档的知识片段列表（用于引用定位与片段预览）。"""
+    chunks = document_service.list_chunks(db, document_id)
+    return [
+        ChunkOut(
+            id=c.id,
+            chunk_index=c.chunk_index,
+            heading=c.heading,
+            page_no=c.page_no,
+            content=c.content,
+            token_count=c.token_count,
+            has_embedding=c.embedding is not None,
+        )
+        for c in chunks
+    ]
+
+
+@router.post("/{document_id}/reveal")
+def reveal_document(document_id: uuid.UUID, db: Session = Depends(get_db)) -> dict:
+    """在系统文件管理器中定位原始文件（本地应用，仅本机有效）。"""
+    doc = document_service.get_document(db, document_id)
+    try:
+        path = files.abs_path(doc.file_path)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    ok = files.reveal_in_file_manager(path)
+    return {
+        "ok": ok,
+        "path": str(path),
+        "message": "已在文件管理器中定位" if ok else "无法打开文件管理器，请确认原始文件是否存在",
+    }
 
 
 @router.put("/{document_id}", response_model=DocumentOut)

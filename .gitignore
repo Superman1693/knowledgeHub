@@ -2,8 +2,10 @@
 .env
 .env.local
 
-# 启动脚本记录的运行时端口
+# 启动脚本记录的运行时端口与日志
 .kh_runtime.json
+_backend.log
+_frontend.log
 
 # ===== 运行期数据（正式数据 / 缓存 / 导出 / 日志）=====
 data/

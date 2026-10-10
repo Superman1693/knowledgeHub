@@ -7,6 +7,7 @@ from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.exceptions import AIUnavailableError
 from app.schemas.category import TagCreate, TagOut, TagSuggestRequest, TagUpdate
 from app.services import tag_service
 
@@ -43,7 +44,16 @@ def delete_tag(tag_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
 
 
 @router.post("/suggest")
-def suggest_tags(payload: TagSuggestRequest, db: Session = Depends(get_db)) -> dict:
+async def suggest_tags(payload: TagSuggestRequest, db: Session = Depends(get_db)) -> dict:
+    """推荐标签。use_ai=true 时由对话模型按文档主题生成（更准，需已配置模型）。"""
+    if payload.use_ai:
+        try:
+            tags = await tag_service.suggest_tags_ai(
+                db, payload.document_id, payload.text, payload.limit
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise AIUnavailableError(f"AI 标签推荐失败：{exc}") from exc
+        return {"suggestions": tags, "note": "由 AI 根据文档主题生成，仅供参考"}
     tags = tag_service.suggest_tags(db, payload.document_id, payload.text, payload.limit)
     return {"suggestions": tags, "note": "标签建议基于内容词频与已有标签，仅供参考"}
 

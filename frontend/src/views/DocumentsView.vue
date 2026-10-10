@@ -91,13 +91,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { FolderOpened, UploadFilled } from '@element-plus/icons-vue'
 import { categoriesApi, documentsApi, tagsApi } from '@/api'
 import type { Category, DocumentOut, Tag } from '@/api/types'
 import { docStatusText as statusText, docStatusType as statusType } from '@/utils/status'
 
+const route = useRoute()
 const loading = ref(false)
 const items = ref<DocumentOut[]>([])
 const total = ref(0)
@@ -176,12 +178,28 @@ async function remove(row: DocumentOut) {
   reload()
 }
 
+/** 支持从「分类管理 / 标签管理」带筛选条件跳转过来。 */
+function applyRouteFilters() {
+  if (route.query.category) filters.category_id = String(route.query.category)
+  if (route.query.tag) filters.tag = String(route.query.tag)
+}
+
 onMounted(async () => {
   const [cats, tgs] = await Promise.all([categoriesApi.list(), tagsApi.list()])
   categories.value = cats
   tags.value = tgs
+  applyRouteFilters()
   await reload()
 })
+
+// 已停留在文档页时再次从分类/标签页跳转，同样生效
+watch(
+  () => route.query,
+  () => {
+    applyRouteFilters()
+    reload()
+  },
+)
 </script>
 
 <style scoped>

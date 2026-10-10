@@ -1,6 +1,7 @@
 import client from './client'
 import type {
   Category,
+  ChunkOut,
   ConversationDetail,
   ConversationOut,
   DocumentDetail,
@@ -11,6 +12,7 @@ import type {
   SearchResponse,
   SettingsOut,
   Tag,
+  WebResult,
 } from './types'
 
 // ===== 文档 =====
@@ -54,6 +56,10 @@ export const documentsApi = {
       })
       .then((r) => r.data)
   },
+  /** 知识片段列表（引用定位与片段预览）。 */
+  chunks(id: string) {
+    return client.get<ChunkOut[]>(`/documents/${id}/chunks`).then((r) => r.data)
+  },
   originalUrl(id: string) {
     return `/api/documents/${id}/file`
   },
@@ -89,7 +95,13 @@ export const tagsApi = {
   remove(id: string) {
     return client.delete(`/tags/${id}`).then((r) => r.data)
   },
-  suggest(payload: { document_id?: string; text?: string; limit?: number }) {
+  suggest(payload: {
+    document_id?: string
+    text?: string
+    limit?: number
+    /** true = 调用模型按文档主题推荐；false = 词频启发式 */
+    use_ai?: boolean
+  }) {
     return client
       .post<{ suggestions: string[]; note: string }>('/tags/suggest', payload)
       .then((r) => r.data)
@@ -170,9 +182,15 @@ export const chatApi = {
 export interface SseHandlers {
   onSources?: (sources: unknown[]) => void
   onGlossary?: (terms: { term: string; definition: string; category?: string | null }[]) => void
-  onThinking?: (chars: number) => void
+  onWeb?: (data: { results: WebResult[]; ok: boolean; message: string }) => void
+  onThinking?: (data: { text: string; chars: number }) => void
   onDelta?: (text: string) => void
-  onDone?: (data: { message_id: string; sources: unknown[] }) => void
+  onDone?: (data: {
+    message_id: string
+    sources: unknown[]
+    source_type?: string | null
+    web_results?: WebResult[]
+  }) => void
   onError?: (message: string) => void
   onAbort?: () => void
 }
@@ -223,7 +241,9 @@ async function streamSse(
       const parsed = JSON.parse(data)
       if (event === 'sources') handlers.onSources?.(parsed)
       else if (event === 'glossary') handlers.onGlossary?.(parsed)
-      else if (event === 'thinking') handlers.onThinking?.(parsed.chars ?? 0)
+      else if (event === 'web') handlers.onWeb?.(parsed)
+      else if (event === 'thinking')
+        handlers.onThinking?.({ text: parsed.text ?? '', chars: parsed.chars ?? 0 })
       else if (event === 'delta') handlers.onDelta?.(parsed.text ?? '')
       else if (event === 'done') handlers.onDone?.(parsed)
       else if (event === 'error') handlers.onError?.(parsed.message ?? '未知错误')
@@ -261,13 +281,20 @@ export function askStream(
   return streamSse(`/api/conversations/${conversationId}/messages`, payload, handlers, signal)
 }
 
-/** 重新生成某条 AI 回答（SSE 流式）。 */
+/** 重新生成某条 AI 回答（SSE 流式）。useWeb 传入当前联网开关状态。 */
 export function regenerateStream(
   messageId: string,
   handlers: SseHandlers,
   signal?: AbortSignal,
+  useWeb = false,
 ): Promise<void> {
-  return streamSse(`/api/messages/${messageId}/regenerate`, undefined, handlers, signal)
+  const qs = useWeb ? '?use_web=true' : ''
+  return streamSse(
+    `/api/messages/${messageId}/regenerate${qs}`,
+    undefined,
+    handlers,
+    signal,
+  )
 }
 
 // ===== 设置 =====

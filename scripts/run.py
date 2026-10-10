@@ -3,6 +3,7 @@
 用法：
     python scripts/run.py                # 完整启动：检查环境 → 装依赖 → 迁移 → 启动前后端
     python scripts/run.py --no-install   # 跳过依赖安装检查
+    python scripts/run.py --detach       # 分离模式：后台常驻，关闭终端不影响服务
 
 Windows 下由 scripts/start.bat 调用本脚本。
 批处理文件保持纯 ASCII，中文提示全部由 Python 输出，
@@ -37,6 +38,8 @@ FRONTEND_PORT = "5173"
 RUNTIME_FILE = ROOT / ".kh_runtime.json"
 
 SKIP_INSTALL = "--no-install" in sys.argv
+# 分离模式：子进程独立于当前终端，父进程立即退出（关闭终端不影响服务）
+DETACH = "--detach" in sys.argv
 
 # pip 源候选：先默认源，失败再切国内镜像（直连 PyPI 可能极慢）
 PIP_MIRRORS: list[str | None] = [
@@ -169,6 +172,79 @@ def port_in_use(port: int, host: str = "127.0.0.1") -> bool:
             return True
 
 
+def _spawn_kwargs() -> dict:
+    """分离模式下的进程创建参数（跨平台）。"""
+    if os.name == "nt":
+        return {
+            "creationflags": getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+        }
+    return {"start_new_session": True}
+
+
+def start_detached(py: Path, backend_port: int, frontend_port: int) -> None:
+    """以分离模式启动：输出写日志文件，父进程立即退出。"""
+    kwargs = _spawn_kwargs()
+    backend_log = (ROOT / "_backend.log").open("a", encoding="utf-8", buffering=1)
+    frontend_log = (ROOT / "_frontend.log").open("a", encoding="utf-8", buffering=1)
+
+    backend_proc = subprocess.Popen(
+        [
+            str(py),
+            "-m",
+            "uvicorn",
+            "app.main:app",
+            "--host",
+            BACKEND_HOST,
+            "--port",
+            str(backend_port),
+        ],
+        cwd=str(BACKEND),
+        stdin=subprocess.DEVNULL,
+        stdout=backend_log,
+        stderr=subprocess.STDOUT,
+        close_fds=True,
+        **kwargs,
+    )
+
+    frontend_env = os.environ.copy()
+    frontend_env["KH_BACKEND_PORT"] = str(backend_port)
+    frontend_env["KH_FRONTEND_PORT"] = str(frontend_port)
+    npm = "npm.cmd" if os.name == "nt" else "npm"
+    frontend_proc = subprocess.Popen(
+        [npm, "run", "dev"],
+        cwd=str(FRONTEND),
+        env=frontend_env,
+        stdin=subprocess.DEVNULL,
+        stdout=frontend_log,
+        stderr=subprocess.STDOUT,
+        close_fds=True,
+        **kwargs,
+    )
+
+    try:
+        RUNTIME_FILE.write_text(
+            json.dumps(
+                {
+                    "backend_port": backend_port,
+                    "frontend_port": frontend_port,
+                    "backend_pid": backend_proc.pid,
+                    "frontend_pid": frontend_proc.pid,
+                    "detached": True,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    log("[提示] 已以分离模式启动，关闭终端不会影响服务运行。")
+    log(f"[提示] 后端日志：{ROOT / '_backend.log'}")
+    log(f"[提示] 前端日志：{ROOT / '_frontend.log'}")
+    log("[提示] 停止请运行 scripts/stop.bat")
+
+
 def start_services(py: Path) -> None:
     backend_port = find_free_port(int(BACKEND_PORT))
     frontend_port = find_free_port(int(FRONTEND_PORT))
@@ -189,9 +265,16 @@ def start_services(py: Path) -> None:
     log("  正在启动服务 ...")
     log(f"  前端地址：http://{BACKEND_HOST}:{frontend_port}")
     log(f"  后端接口：http://{BACKEND_HOST}:{backend_port}/docs")
-    log("  按 Ctrl+C 停止（或运行 scripts/stop.bat）")
+    if DETACH:
+        log("  运行模式：分离（后台常驻，关闭终端不影响）")
+    else:
+        log("  按 Ctrl+C 停止（或运行 scripts/stop.bat）")
     log("=" * 46)
     log("")
+
+    if DETACH:
+        start_detached(py, backend_port, frontend_port)
+        return
 
     backend_proc = subprocess.Popen(
         [

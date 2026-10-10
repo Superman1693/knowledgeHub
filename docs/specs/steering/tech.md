@@ -47,7 +47,7 @@ inclusion: always
 
 - 本机已安装 PostgreSQL 18.4 且正在运行（5432 端口监听），`server_encoding = UTF8`。
 - 本机 PostgreSQL 已安装 **pgvector 0.8.2** 扩展（另含 pg_trgm 1.6、pgcrypto 1.4、uuid-ossp 1.1），向量能力开箱即用。
-- 一个库同时覆盖关系 + 向量 + 关键词，**比 SQLite + ChromaDB 少维护一套依赖**，且是生产级方案。
+- 一个库同时覆盖关系 + 向量 + 关键词，**无需额外维护一套向量数据库**，且是生产级方案。
 - 项目为单用户本地场景，PG 的资源占用完全可接受。
 
 ### 2.3 中文检索策略（重要约束）
@@ -66,11 +66,13 @@ inclusion: always
 - 连接串通过 `.env` 注入，**严禁硬编码**进源码或提交进仓库
 - 建库 / 建号 / 建扩展的具体 SQL 见 `docs/specs/knowledgehub-core/design.md`
 
-### 2.5 回退路径
+### 2.5 存储方案唯一性
 
-仅当目标机器**确实找不到合适的本地存储**时，才回退到原提示词方案：
-`SQLite + ChromaDB`（纯 Python、零外部服务）。回退时的迁移步骤记录在 `design.md`。
-本机已具备 PG + pgvector，**默认不启用回退**。
+本项目**只使用 PostgreSQL 18 + pgvector 一套存储**，不提供其它回退方案：
+
+- 关系、向量、关键词三类职责全部由同一个库承担，避免多套存储之间的数据一致性问题。
+- 本机已安装并运行 PostgreSQL 18.4 + pgvector 0.8.2，无需额外部署或安装独立向量数据库。
+- `STORAGE_MODE` 仅接受 `postgres`；配置成其它值时，启动日志与 `/api/health` 会明确报错。
 
 ## 3. 运行环境
 

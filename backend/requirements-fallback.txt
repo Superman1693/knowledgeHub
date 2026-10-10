@@ -1,3 +1,0 @@
-# ===== 回退方案依赖（STORAGE_MODE=sqlite 时使用）=====
-# 用法：pip install -r requirements-fallback.txt
-chromadb>=0.5.0

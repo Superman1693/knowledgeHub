@@ -70,12 +70,14 @@ def test_glossary_lookup_matches_term_and_alias(client: TestClient, clean) -> No
     )
 
     # 命中术语名
+    # 用「包含」而非「相等」断言：术语词典是全局数据，库里可能存在其它术语
+    # （例如 'RAG' 恰好是本次查询文本的子串），用相等会误报失败。
     hit = client.post("/api/glossary/lookup", json={"text": f"{PREFIX}RAG 是什么"}).json()
-    assert [t["term"] for t in hit["terms"]] == [f"{PREFIX}RAG"]
+    assert f"{PREFIX}RAG" in [t["term"] for t in hit["terms"]]
 
     # 命中别名
     hit2 = client.post("/api/glossary/lookup", json={"text": f"{PREFIX}知识中心怎么用"}).json()
-    assert [t["term"] for t in hit2["terms"]] == [f"{PREFIX}KH"]
+    assert f"{PREFIX}KH" in [t["term"] for t in hit2["terms"]]
 
     # 未命中：不应误报（需求 17.4 的前置条件）
     hit3 = client.post(

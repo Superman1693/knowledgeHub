@@ -28,6 +28,8 @@ class MessageOut(BaseModel):
     content: str
     sources: list | None = None
     source_type: str | None = None
+    # 推理模型的思考过程（可空）；前端用于折叠展示，不计入回答正文
+    reasoning: str | None = None
     created_at: datetime
 
 

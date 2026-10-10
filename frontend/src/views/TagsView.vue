@@ -7,6 +7,15 @@
       </div>
     </div>
 
+    <el-alert class="guide" type="info" :closable="false" show-icon title="标签怎么用？">
+      <div>
+        标签是<b>细粒度交叉标记</b>（如「Vue3」「性能优化」），一篇文档可以有多个标签。
+        给文档打标签的入口在「文档管理」里点开某篇文档 → 详情页的「标签」选择框，
+        那里还有「推荐标签」可按文档内容自动生成建议。本页负责创建与管理标签本身，
+        点下方<b>关联文档数</b>可查看带该标签的文档。
+      </div>
+    </el-alert>
+
     <div class="card">
       <div class="row">
         <el-input v-model="newName" placeholder="新标签名称" style="width: 220px" @keyup.enter="create" />
@@ -25,12 +34,26 @@
 
       <el-table :data="items" class="mt" v-loading="loading" size="default">
         <el-table-column prop="name" label="标签" min-width="200" />
-        <el-table-column prop="document_count" label="关联文档" width="120" />
+        <el-table-column label="关联文档" width="120">
+          <template #default="{ row }">
+            <el-link
+              v-if="row.document_count"
+              type="primary"
+              @click="openDocuments({ tag: row.name })"
+            >
+              {{ row.document_count }}
+            </el-link>
+            <span v-else class="muted">0</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180">
           <template #default="{ row }">{{ fmt(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="openDocuments({ tag: row.name })">
+              查看文档
+            </el-button>
             <el-button link type="primary" size="small" @click="rename(row)">重命名</el-button>
             <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
           </template>
@@ -52,11 +75,13 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { tagsApi } from '@/api'
 import client from '@/api/client'
 import type { Tag } from '@/api/types'
 
+const router = useRouter()
 const loading = ref(false)
 const items = ref<Tag[]>([])
 const newName = ref('')
@@ -64,6 +89,11 @@ const probe = ref('')
 const similar = ref<string[]>([])
 
 const fmt = (v: string) => new Date(v).toLocaleString('zh-CN')
+
+/** 跳转到文档管理并预置标签筛选。 */
+function openDocuments(query: Record<string, string>) {
+  router.push({ path: '/documents', query })
+}
 
 async function load() {
   loading.value = true
@@ -127,5 +157,11 @@ onMounted(load)
 }
 .mt-sm {
   margin-top: 12px;
+}
+.guide {
+  margin-bottom: 16px;
+}
+.muted {
+  color: var(--kh-text-mute);
 }
 </style>

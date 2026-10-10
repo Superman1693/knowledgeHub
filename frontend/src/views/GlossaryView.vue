@@ -9,6 +9,23 @@
       </div>
     </div>
 
+    <el-alert class="guide" type="info" :closable="false" show-icon title="术语词典怎么用？">
+      <div>
+        把你项目里的<b>缩写、内部代号、个人习惯用语</b>录进来（如 KH、RAG、DAL）。
+        问答时系统会先在词典里查，命中后<b>优先采用你的定义</b>，避免模型望文生义。
+        别名可填多种写法以提高命中率；下方「命中预览」可试一句话，看会命中哪些术语。
+      </div>
+      <el-button
+        v-if="!items.length"
+        class="mt-sm"
+        size="small"
+        type="primary"
+        @click="addSamples"
+      >
+        导入 3 条示例术语
+      </el-button>
+    </el-alert>
+
     <div class="card">
       <div class="row">
         <el-input v-model="keyword" placeholder="搜索术语或释义" clearable style="width: 240px" @keyup.enter="load" />
@@ -128,6 +145,30 @@ const editing = ref<GlossaryTerm | null>(null)
 
 const categories = ['缩写', '框架术语', '项目名词', '习惯用语', '其他']
 
+// 示例术语：帮助首次使用者快速理解词典的作用与写法
+const SAMPLE_TERMS = [
+  {
+    term: 'RAG',
+    definition:
+      '检索增强生成（Retrieval-Augmented Generation）：先从知识库检索相关片段，再让模型基于这些片段回答，避免凭空编造。',
+    aliases: ['检索增强'],
+    category: '缩写',
+  },
+  {
+    term: 'Chunk',
+    definition: '知识片段：文档正文按语义/长度切分后的最小检索单元，每个片段独立生成向量。',
+    aliases: ['知识片段', '分块'],
+    category: '框架术语',
+  },
+  {
+    term: '混合检索',
+    definition:
+      '关键词检索（pg_trgm）与语义检索（pgvector）按权重融合的检索方式，兼顾精确与联想。',
+    aliases: ['hybrid search'],
+    category: '框架术语',
+  },
+]
+
 const form = reactive({
   term: '',
   definition: '',
@@ -194,6 +235,21 @@ async function remove(row: GlossaryTerm) {
   await load()
 }
 
+/** 一键导入示例术语（同名已存在的会跳过），方便快速体验词典效果。 */
+async function addSamples() {
+  let added = 0
+  for (const t of SAMPLE_TERMS) {
+    try {
+      await glossaryApi.create(t)
+      added += 1
+    } catch {
+      /* 同名术语已存在，跳过 */
+    }
+  }
+  ElMessage.success(added ? `已导入 ${added} 条示例术语` : '示例术语已存在')
+  await load()
+}
+
 async function doLookup() {
   if (!probe.value.trim()) return
   lookupResult.value = await glossaryApi.lookup(probe.value)
@@ -223,6 +279,9 @@ onMounted(load)
   color: var(--kh-text-sub);
   font-size: 12px;
   margin: 0 0 10px;
+}
+.guide {
+  margin-bottom: 16px;
 }
 .term-name {
   font-weight: 600;

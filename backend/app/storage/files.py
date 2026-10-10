@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -82,3 +85,23 @@ def write_export(name: str, content: str) -> str:
     dest = settings.exports_path / safe
     dest.write_text(content, encoding="utf-8")
     return str(dest)
+
+
+def reveal_in_file_manager(path: Path) -> bool:
+    """在系统文件管理器中定位该文件（本地应用场景）。
+
+    文件不存在时返回 False，不抛异常。
+    """
+    if not path.exists():
+        return False
+    try:
+        if os.name == "nt":
+            # explorer 的 /select 会打开资源管理器并选中该文件
+            subprocess.Popen(["explorer", "/select,", str(path)])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path.parent)])
+        return True
+    except Exception:  # noqa: BLE001
+        return False

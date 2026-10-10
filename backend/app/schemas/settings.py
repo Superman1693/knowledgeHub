@@ -22,8 +22,15 @@ class SettingsOut(BaseModel):
     hybrid_alpha: float
     hybrid_beta: float
     search_top_k: int
+    chunk_mode: str = "semantic"
+    parent_child_enabled: bool = True
     storage_mode: str
     default_answer_mode: str
+    web_search_enabled: bool = False
+    web_search_provider: str = "bing"
+    web_search_api_url: str = ""
+    web_search_top_k: int = 5
+    has_web_search_key: bool = False
 
 
 class SettingsUpdate(BaseModel):
@@ -42,7 +49,14 @@ class SettingsUpdate(BaseModel):
     hybrid_alpha: float | None = None
     hybrid_beta: float | None = None
     search_top_k: int | None = None
+    chunk_mode: str | None = None
+    parent_child_enabled: bool | None = None
     default_answer_mode: str | None = None
+    web_search_enabled: bool | None = None
+    web_search_provider: str | None = None
+    web_search_api_url: str | None = None
+    web_search_api_key: str | None = None
+    web_search_top_k: int | None = None
 
 
 class ModelTestResult(BaseModel):

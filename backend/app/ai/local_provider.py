@@ -87,27 +87,41 @@ class LocalProvider(AIProvider):
     async def embed(
         self, texts: list[str], model: str | None = None
     ) -> list[list[float]]:
+        """批量生成嵌入，按 `embedding_batch_size` 分批（与外部服务行为一致）。"""
         model = model or settings.embedding_model
         if not model:
             raise AIUnavailableError("未配置嵌入模型（EMBEDDING_MODEL 为空）")
+        if not texts:
+            return []
+
+        size = max(1, settings.embedding_batch_size)
+        out: list[list[float]] = []
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(
-                    f"{self.base}/api/embed",
-                    json={"model": model, "input": texts},
-                )
-                if resp.status_code == 404:
-                    # 兼容旧版 Ollama 接口
-                    out: list[list[float]] = []
-                    for text in texts:
-                        rr = await client.post(
-                            f"{self.base}/api/embeddings",
-                            json={"model": model, "prompt": text},
+                for start in range(0, len(texts), size):
+                    batch = texts[start : start + size]
+                    resp = await client.post(
+                        f"{self.base}/api/embed",
+                        json={"model": model, "input": batch},
+                    )
+                    if resp.status_code == 404:
+                        # 兼容旧版 Ollama 接口（逐条提交）
+                        for text in batch:
+                            rr = await client.post(
+                                f"{self.base}/api/embeddings",
+                                json={"model": model, "prompt": text},
+                            )
+                            rr.raise_for_status()
+                            out.append(rr.json()["embedding"])
+                        continue
+                    resp.raise_for_status()
+                    vecs = resp.json().get("embeddings", [])
+                    if len(vecs) != len(batch):
+                        # 数量不匹配会让向量与片段错位，宁可失败也不写入错误索引
+                        raise AIUnavailableError(
+                            f"嵌入返回数量不匹配：请求 {len(batch)} 条，返回 {len(vecs)} 条"
                         )
-                        rr.raise_for_status()
-                        out.append(rr.json()["embedding"])
-                    return out
-                resp.raise_for_status()
-                return resp.json().get("embeddings", [])
+                    out.extend(vecs)
         except httpx.HTTPError as exc:
             raise AIUnavailableError(f"本地嵌入调用失败：{exc}") from exc
+        return out

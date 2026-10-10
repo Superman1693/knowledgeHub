@@ -22,6 +22,7 @@
             <div class="conv-title">{{ c.title }}</div>
             <div class="conv-meta">{{ c.message_count }} 条消息 · {{ shortDate(c.updated_at) }}</div>
           </div>
+          <el-icon class="conv-edit" @click.stop="renameConversation(c)"><EditPen /></el-icon>
           <el-icon class="conv-del" @click.stop="removeConversation(c.id)"><Delete /></el-icon>
         </div>
 
@@ -43,6 +44,21 @@
           <div class="chat-top-sub">回答只依据你的知识库，并标注引用来源</div>
         </div>
         <div class="chat-top-right">
+          <el-tooltip
+            :content="
+              webAllowed
+                ? '联网检索补充信息，回答会标注 🌐 并附真实链接'
+                : '未在「系统设置」中开启联网搜索'
+            "
+            placement="bottom"
+          >
+            <span class="web-toggle" :class="{ 'is-off': !webAllowed }">
+              <el-icon><Connection /></el-icon>
+              <span>联网</span>
+              <el-switch v-model="useWeb" size="small" :disabled="!webAllowed" />
+            </span>
+          </el-tooltip>
+          <el-divider direction="vertical" />
           <span class="mode-label">回答风格</span>
           <el-radio-group v-model="mode" size="small" @change="onModeChange">
             <el-radio-button value="detail">详细</el-radio-button>
@@ -53,7 +69,7 @@
       </header>
 
       <!-- 消息流 -->
-      <div ref="scrollEl" class="messages">
+      <div ref="scrollEl" class="messages" @scroll.passive="onMessagesScroll">
         <!-- 空态：欢迎与示例问题 -->
         <div v-if="!messages.length && !streaming" class="welcome">
           <div class="welcome-icon"><el-icon><Reading /></el-icon></div>
@@ -101,6 +117,27 @@
           <div v-else class="msg-row is-ai">
             <div class="avatar is-ai"><el-icon><MagicStick /></el-icon></div>
             <div class="bubble is-ai">
+              <!-- 历史消息的思考过程（默认折叠，点击展开） -->
+              <div v-if="m.reasoning" class="thinking-box">
+                <button class="thinking-head" type="button" @click="toggleThinking(m.id)">
+                  <el-icon class="thinking-icon"><Cpu /></el-icon>
+                  <span>已深度思考（{{ m.reasoning.length }} 字）</span>
+                  <el-icon class="thinking-arrow" :class="{ open: thinkingExpanded.has(m.id) }">
+                    <ArrowDown />
+                  </el-icon>
+                </button>
+                <div v-show="thinkingExpanded.has(m.id)" class="thinking-body">
+                  {{ m.reasoning }}
+                </div>
+              </div>
+
+              <!-- 来源类型标注（📄原文 / 📑归纳 / 🌐联网，见需求 14） -->
+              <div v-if="m.source_type" class="source-badge">
+                <el-tag size="small" effect="plain" :type="badgeType(m.source_type)">
+                  {{ badgeIcon(m.source_type) }} {{ m.source_type }}
+                </el-tag>
+              </div>
+
               <MarkdownView :content="m.content" />
 
               <!-- 引用来源 -->
@@ -113,23 +150,59 @@
                   </el-icon>
                 </button>
                 <div v-show="expanded.has(m.id)" class="sources-body">
-                  <div
-                    v-for="(s, si) in m.sources"
-                    :key="s.chunk_id"
-                    class="source-item"
-                  >
+                  <div v-for="(s, si) in m.sources" :key="s.chunk_id" class="source-item">
                     <span class="source-index">{{ si + 1 }}</span>
                     <div class="source-main">
                       <div class="source-line">
-                        <el-link type="primary" @click="$router.push(`/documents/${s.document_id}`)">
+                        <el-link type="primary" @click="openSource(s)">
                           {{ s.document_title }}
                         </el-link>
                         <span v-if="s.heading" class="muted">· {{ s.heading }}</span>
                         <span v-if="s.page_no" class="muted">· 第 {{ s.page_no }} 页</span>
+                        <el-link
+                          v-if="s.parent_content"
+                          class="muted"
+                          @click="toggleParent(s.chunk_id)"
+                        >
+                          {{ parentExpanded.has(s.chunk_id) ? '收起上下文' : '展开上下文' }}
+                        </el-link>
                       </div>
                       <div class="source-snippet">{{ s.snippet }}</div>
+                      <div
+                        v-if="s.parent_content && parentExpanded.has(s.chunk_id)"
+                        class="source-parent"
+                      >
+                        {{ s.parent_content }}
+                      </div>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <!-- 联网补充来源：真实链接，仅随本次流式响应返回（不落库） -->
+              <div v-if="m.web_results && m.web_results.length" class="sources">
+                <div class="sources-head is-static">
+                  <el-icon><Connection /></el-icon>
+                  <span>联网补充 {{ m.web_results.length }} 条</span>
+                </div>
+                <div class="sources-body">
+                  <a
+                    v-for="(w, wi) in m.web_results"
+                    :key="w.url"
+                    class="source-item web-item"
+                    :href="w.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <span class="source-index">{{ wi + 1 }}</span>
+                    <div class="source-main">
+                      <div class="source-line">
+                        <span class="web-title">{{ w.title || w.url }}</span>
+                        <span class="muted">· {{ hostOf(w.url) }}</span>
+                      </div>
+                      <div class="source-snippet">{{ w.snippet }}</div>
+                    </div>
+                  </a>
                 </div>
               </div>
 
@@ -160,17 +233,31 @@
               <span>命中术语词典：{{ glossaryTerms.map((t) => t.term).join('、') }}</span>
             </div>
 
+            <!-- 模型思考过程（类似 DeepSeek 的思考区，可折叠） -->
+            <div v-if="thinkingText" class="thinking-box">
+              <button class="thinking-head" type="button" @click="thinkingOpen = !thinkingOpen">
+                <el-icon class="thinking-icon" :class="{ spinning: !streamText }">
+                  <Loading />
+                </el-icon>
+                <span>
+                  {{
+                    streamText
+                      ? `已深度思考（${thinkingText.length} 字）`
+                      : `正在思考…（${thinkingText.length} 字）`
+                  }}
+                </span>
+                <el-icon class="thinking-arrow" :class="{ open: thinkingOpen }">
+                  <ArrowDown />
+                </el-icon>
+              </button>
+              <div v-show="thinkingOpen" class="thinking-body">{{ thinkingText }}</div>
+            </div>
+
             <div v-if="!streamText" class="typing">
               <span class="typing-dot" />
               <span class="typing-dot" />
               <span class="typing-dot" />
-              <span class="typing-text">
-                {{
-                  thinkingChars > 0
-                    ? `模型思考中（已思考 ${thinkingChars} 字）`
-                    : '正在检索知识库'
-                }}
-              </span>
+              <span class="typing-text">{{ thinkingText ? '正在组织回答…' : '正在检索知识库' }}</span>
             </div>
 
             <template v-else>
@@ -180,6 +267,12 @@
           </div>
         </div>
       </div>
+
+      <!-- 用户上滑查看历史时，提供一键回到底部 -->
+      <button v-if="!stickToBottom" class="to-bottom" type="button" @click="jumpToBottom">
+        <el-icon><ArrowDown /></el-icon>
+        <span>{{ streaming ? '回到最新（生成中）' : '回到最新' }}</span>
+      </button>
 
       <!-- 输入区 -->
       <footer class="composer">
@@ -219,11 +312,19 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { askStream, chatApi, regenerateStream } from '@/api'
-import type { AnswerMode, ConversationOut, MessageOut, SearchHit } from '@/api/types'
+import { askStream, chatApi, regenerateStream, settingsApi } from '@/api'
+import type {
+  AnswerMode,
+  ConversationOut,
+  MessageOut,
+  SearchHit,
+  WebResult,
+} from '@/api/types'
 import MarkdownView from '@/components/MarkdownView.vue'
 
+const router = useRouter()
 const conversations = ref<ConversationOut[]>([])
 const currentId = ref<string | null>(null)
 const messages = ref<MessageOut[]>([])
@@ -231,11 +332,24 @@ const mode = ref<AnswerMode>('detail')
 const input = ref('')
 const streaming = ref(false)
 const streamText = ref('')
-const thinkingChars = ref(0)
+// 模型思考过程：流式期间累积展示，完成后写入消息以便回看。
+// 默认折叠——推理模型（qwen3.7 / deepseek-v4 等）的思考过程往往很长且为英文，
+// 且不受提示词控制，默认展开会淹没正文。
+const thinkingText = ref('')
+const thinkingOpen = ref(false)
 const glossaryTerms = ref<{ term: string; definition: string; category?: string | null }[]>([])
+// 联网补充：webAllowed 来自系统设置总开关；useWeb 为本次会话的临时开关
+const webAllowed = ref(false)
+const useWeb = ref(false)
 const expanded = reactive(new Set<string>())
+// 历史消息思考区的展开状态
+const thinkingExpanded = reactive(new Set<string>())
+// 引用条目的「展开上下文」状态（父子检索：显示父块完整内容）
+const parentExpanded = reactive(new Set<string>())
 const scrollEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLTextAreaElement | null>(null)
+// 是否吸附在底部：用户手动上滑后置 false，避免生成过程把用户拽回底部
+const stickToBottom = ref(true)
 let aborter: AbortController | null = null
 
 const examples = [
@@ -248,9 +362,74 @@ const currentConversation = computed(
   () => conversations.value.find((c) => c.id === currentId.value) ?? null,
 )
 
+/** 来源类型徽章图标（与后端 rag/source_type.py 的标签保持一致）。 */
+function badgeIcon(type: string): string {
+  if (type.includes('联网')) return '🌐'
+  if (type.includes('归纳')) return '📑'
+  if (type.includes('词典')) return '📖'
+  return '📄'
+}
+
+function badgeType(type: string): 'success' | 'primary' | 'warning' | 'info' {
+  if (type.includes('联网')) return 'warning'
+  if (type.includes('归纳')) return 'primary'
+  if (type.includes('词典')) return 'info'
+  return 'success'
+}
+
+/** 从 URL 提取主机名，用于联网结果展示。 */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
+/** 打开引用来源所在文档，并定位到对应片段（需求 13.3 / 17.2）。 */
+function openSource(s: SearchHit) {
+  router.push({
+    path: `/documents/${s.document_id}`,
+    query: { chunk: s.chunk_id },
+  })
+}
+
+/** 重命名会话（需求 16.1）。 */
+async function renameConversation(c: ConversationOut) {
+  let value: string
+  try {
+    const res = await ElMessageBox.prompt('输入新的会话标题', '重命名会话', {
+      inputValue: c.title,
+      inputPattern: /\S/,
+      inputErrorMessage: '标题不能为空',
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+    })
+    value = (res.value || '').trim()
+  } catch {
+    return // 用户取消
+  }
+  if (!value || value === c.title) return
+  await chatApi.update(c.id, { title: value })
+  await loadConversations()
+  ElMessage.success('已重命名')
+}
+
 function toggleSources(id: string) {
   if (expanded.has(id)) expanded.delete(id)
   else expanded.add(id)
+}
+
+/** 展开 / 折叠某条历史消息的思考过程。 */
+function toggleThinking(id: string) {
+  if (thinkingExpanded.has(id)) thinkingExpanded.delete(id)
+  else thinkingExpanded.add(id)
+}
+
+/** 展开 / 折叠引用的父块上下文（父子检索）。 */
+function toggleParent(id: string) {
+  if (parentExpanded.has(id)) parentExpanded.delete(id)
+  else parentExpanded.add(id)
 }
 
 function dayLabel(v: string): string {
@@ -316,10 +495,34 @@ async function onModeChange() {
   if (currentId.value) await chatApi.update(currentId.value, { mode: mode.value })
 }
 
-function scrollToBottom() {
+/** 距底部多少像素内仍视为「在底部」。 */
+const BOTTOM_THRESHOLD = 60
+
+function onMessagesScroll() {
+  const el = scrollEl.value
+  if (!el) return
+  const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+  stickToBottom.value = distance <= BOTTOM_THRESHOLD
+}
+
+/**
+ * 滚动到底部。
+ * force=true：用户主动发问或点击「回到最新」时强制滚动；
+ * 默认：仅当用户仍在底部时才跟随，否则保持其当前阅读位置
+ * （否则流式生成时每来一个 token 都会把用户拽回底部，无法查看历史消息）。
+ */
+function scrollToBottom(force = false) {
+  if (!force && !stickToBottom.value) return
   nextTick(() => {
-    if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight
+    const el = scrollEl.value
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+    stickToBottom.value = true
   })
+}
+
+function jumpToBottom() {
+  scrollToBottom(true)
 }
 
 async function send() {
@@ -342,10 +545,13 @@ async function send() {
   nextTick(autoGrow)
   streaming.value = true
   streamText.value = ''
-  thinkingChars.value = 0
+  thinkingText.value = ''
+  thinkingOpen.value = false
   glossaryTerms.value = []
   let sources: SearchHit[] = []
-  scrollToBottom()
+  let webResults: WebResult[] = []
+  let sourceType: string | null = null
+  scrollToBottom(true) // 用户主动发问：强制滚到底部
 
   aborter = new AbortController()
 
@@ -359,16 +565,20 @@ async function send() {
       role: 'assistant',
       content: aborted ? `${text}\n\n> （已中止生成）` : text,
       sources,
+      source_type: sourceType,
+      web_results: webResults,
+      reasoning: thinkingText.value || null,
       created_at: new Date().toISOString(),
     })
     if (sources.length) expanded.add(id)
+    thinkingText.value = ''
     await loadConversations()
     scrollToBottom()
   }
 
   await askStream(
     currentId.value,
-    { question, mode: mode.value },
+    { question, mode: mode.value, use_web: useWeb.value },
     {
       onSources: (s) => {
         sources = s as SearchHit[]
@@ -376,15 +586,24 @@ async function send() {
       onGlossary: (terms) => {
         glossaryTerms.value = terms
       },
-      onThinking: (chars) => {
-        thinkingChars.value = chars
+      onWeb: (data) => {
+        webResults = data.results
+        // 启用了联网却没拿到结果：明确告知，不静默
+        if (!data.ok) ElMessage.warning(data.message)
+      },
+      onThinking: (data) => {
+        thinkingText.value += data.text
         scrollToBottom()
       },
       onDelta: (t) => {
+        // 正文开始输出：自动折叠思考区（与 DeepSeek 行为一致）
+        if (thinkingOpen.value && thinkingText.value) thinkingOpen.value = false
         streamText.value += t
         scrollToBottom()
       },
       onDone: async (data) => {
+        sourceType = data.source_type ?? null
+        if (data.web_results) webResults = data.web_results
         await finalize(streamText.value, false, data.message_id)
       },
       onAbort: async () => {
@@ -427,11 +646,14 @@ async function regenerate(m: MessageOut) {
 
   streaming.value = true
   streamText.value = ''
-  thinkingChars.value = 0
+  thinkingText.value = ''
+  thinkingOpen.value = false
   glossaryTerms.value = []
   let sources: SearchHit[] = []
+  let webResults: WebResult[] = []
+  let sourceType: string | null = null
   messages.value.splice(idx, 1)
-  scrollToBottom()
+  scrollToBottom(true) // 用户主动重新生成：强制滚到底部
 
   aborter = new AbortController()
 
@@ -445,9 +667,13 @@ async function regenerate(m: MessageOut) {
       role: 'assistant',
       content: aborted ? `${text}\n\n> （已中止生成）` : text,
       sources,
+      source_type: sourceType,
+      web_results: webResults,
+      reasoning: thinkingText.value || null,
       created_at: new Date().toISOString(),
     })
     if (sources.length) expanded.add(id)
+    thinkingText.value = ''
     await loadConversations()
     scrollToBottom()
   }
@@ -461,15 +687,23 @@ async function regenerate(m: MessageOut) {
       onGlossary: (terms) => {
         glossaryTerms.value = terms
       },
-      onThinking: (chars) => {
-        thinkingChars.value = chars
+      onWeb: (data) => {
+        webResults = data.results
+        if (!data.ok) ElMessage.warning(data.message)
+      },
+      onThinking: (data) => {
+        thinkingText.value += data.text
         scrollToBottom()
       },
       onDelta: (t) => {
+        // 正文开始输出：自动折叠思考区（与 DeepSeek 行为一致）
+        if (thinkingOpen.value && thinkingText.value) thinkingOpen.value = false
         streamText.value += t
         scrollToBottom()
       },
       onDone: async (data) => {
+        sourceType = data.source_type ?? null
+        if (data.web_results) webResults = data.web_results
         await finish(streamText.value, false, data.message_id)
       },
       onAbort: async () => {
@@ -484,10 +718,24 @@ async function regenerate(m: MessageOut) {
       },
     },
     aborter.signal,
+    useWeb.value,
   )
 }
 
+/** 读取系统设置中的联网总开关；未开启时前端不允许启用联网（需求 14.5）。 */
+async function loadWebSetting() {
+  try {
+    const s = await settingsApi.get()
+    webAllowed.value = s.web_search_enabled
+    useWeb.value = s.web_search_enabled
+  } catch {
+    webAllowed.value = false
+    useWeb.value = false
+  }
+}
+
 onMounted(async () => {
+  await loadWebSetting()
   await loadConversations()
   if (conversations.value.length) await selectConversation(conversations.value[0].id)
 })
@@ -579,9 +827,9 @@ onMounted(async () => {
   margin-top: 2px;
 }
 
+.conv-edit,
 .conv-del {
   position: absolute;
-  right: 9px;
   top: 10px;
   font-size: 14px;
   color: var(--kh-text-mute);
@@ -589,8 +837,21 @@ onMounted(async () => {
   transition: opacity 0.15s ease;
 }
 
+.conv-edit {
+  right: 28px;
+}
+
+.conv-del {
+  right: 9px;
+}
+
+.conv-item:hover .conv-edit,
 .conv-item:hover .conv-del {
   opacity: 1;
+}
+
+.conv-edit:hover {
+  color: var(--kh-primary);
 }
 
 .conv-del:hover {
@@ -613,6 +874,7 @@ onMounted(async () => {
 
 /* ================= 对话主区 ================= */
 .chat-main {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -659,11 +921,50 @@ onMounted(async () => {
   color: var(--kh-text-sub);
 }
 
+/* 联网开关 */
+.web-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--kh-text-sub);
+}
+
+.web-toggle.is-off {
+  opacity: 0.55;
+}
+
 /* ================= 消息流 ================= */
 .messages {
   flex: 1;
   overflow-y: auto;
   padding: 22px 22px 8px;
+}
+
+/* 用户上滑查看历史时的一键回底按钮 */
+.to-bottom {
+  position: absolute;
+  right: 28px;
+  bottom: 138px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 13px;
+  border-radius: 16px;
+  border: 1px solid var(--kh-primary-border);
+  background: var(--kh-panel);
+  color: var(--kh-primary);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  box-shadow: var(--kh-shadow-sm);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.to-bottom:hover {
+  background: var(--kh-primary-soft);
+  transform: translateY(-1px);
 }
 
 .date-divider {
@@ -766,6 +1067,76 @@ onMounted(async () => {
   border-bottom: 1px solid var(--kh-border);
 }
 
+/* ---- 模型思考过程（类似 DeepSeek 的思考区） ---- */
+.thinking-box {
+  margin-bottom: 10px;
+  border: 1px solid var(--kh-border-light);
+  border-radius: 8px;
+  background: var(--kh-bg);
+  overflow: hidden;
+}
+
+.thinking-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--kh-text-sub);
+  text-align: left;
+}
+
+.thinking-head:hover {
+  background: var(--kh-bg-deep);
+}
+
+.thinking-icon {
+  font-size: 13px;
+  color: var(--kh-text-mute);
+}
+
+.thinking-icon.spinning {
+  animation: kh-spin 1s linear infinite;
+}
+
+@keyframes kh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.thinking-arrow {
+  margin-left: auto;
+  font-size: 12px;
+  transition: transform 0.2s ease;
+}
+
+.thinking-arrow.open {
+  transform: rotate(180deg);
+}
+
+.thinking-body {
+  padding: 6px 12px 10px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--kh-text-sub);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow-y: auto;
+  border-top: 1px dashed var(--kh-border-light);
+}
+
+/* ---- 来源类型徽章 ---- */
+.source-badge {
+  margin-bottom: 8px;
+}
+
 /* ---- 术语命中 ---- */
 .glossary-note {
   display: flex;
@@ -864,6 +1235,11 @@ onMounted(async () => {
   opacity: 0.8;
 }
 
+/* 联网来源标题不可折叠，仅为说明行 */
+.sources-head.is-static {
+  cursor: default;
+}
+
 .sources-arrow {
   margin-left: auto;
   font-size: 12px;
@@ -926,6 +1302,40 @@ onMounted(async () => {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* 父子检索：展开后的父块完整内容 */
+.source-parent {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--kh-primary-border);
+  background: var(--kh-bg-deep);
+  border-radius: 4px;
+  color: var(--kh-text-sub);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* 联网结果条目：整条可点击，指向真实外链 */
+.web-item {
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.web-item:hover {
+  border-color: var(--kh-primary-border);
+  background: var(--kh-primary-soft);
+}
+
+.web-title {
+  font-weight: 500;
+  color: var(--kh-text);
+  word-break: break-word;
 }
 
 /* ---- 操作 ---- */

@@ -29,6 +29,13 @@ OVERRIDE_KEYS = [
     "search_top_k",
     "max_upload_mb",
     "default_answer_mode",
+    "chunk_mode",
+    "parent_child_enabled",
+    # 联网补充（非敏感项；密钥单独写 .env）
+    "web_search_enabled",
+    "web_search_provider",
+    "web_search_api_url",
+    "web_search_top_k",
 ]
 
 # 项目根目录下的 .env（backend/app/services/settings_service.py → 上溯 3 级）
@@ -75,8 +82,15 @@ def to_out(db: Session) -> SettingsOut:
         hybrid_alpha=settings.hybrid_alpha,
         hybrid_beta=settings.hybrid_beta,
         search_top_k=settings.search_top_k,
+        chunk_mode=settings.chunk_mode,
+        parent_child_enabled=settings.parent_child_enabled,
         storage_mode=settings.storage_mode,
         default_answer_mode=getattr(settings, "default_answer_mode", "detail"),
+        web_search_enabled=settings.web_search_enabled,
+        web_search_provider=settings.web_search_provider,
+        web_search_api_url=settings.web_search_api_url,
+        web_search_top_k=settings.web_search_top_k,
+        has_web_search_key=bool(settings.web_search_api_key),
     )
 
 
@@ -91,6 +105,9 @@ def update(db: Session, payload: SettingsUpdate) -> SettingsOut:
     if "embedding_api_key" in data:
         _write_env("EMBEDDING_API_KEY", str(data.pop("embedding_api_key")))
         settings.embedding_api_key = str(payload.embedding_api_key)
+    if "web_search_api_key" in data:
+        _write_env("WEB_SEARCH_API_KEY", str(data.pop("web_search_api_key")))
+        settings.web_search_api_key = str(payload.web_search_api_key)
 
     for key, value in data.items():
         if key in OVERRIDE_KEYS:

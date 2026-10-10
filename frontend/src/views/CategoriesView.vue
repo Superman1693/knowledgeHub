@@ -7,6 +7,14 @@
       </div>
     </div>
 
+    <el-alert class="guide" type="info" :closable="false" show-icon title="分类怎么用？">
+      <div>
+        分类是<b>粗粒度分区</b>（如「工作」「学习」「生活」），一篇文档只能属于一个分类。
+        给文档设置分类的入口在「文档管理」里点开某篇文档 → 详情页的「分类」下拉框。
+        本页负责创建与管理分类本身，点下方<b>文档数</b>可查看该分类下的文档。
+      </div>
+    </el-alert>
+
     <div class="card">
       <div class="row">
         <el-input v-model="newName" placeholder="新分类名称" style="width: 220px" @keyup.enter="create" />
@@ -17,12 +25,31 @@
       <el-table :data="items" class="mt" v-loading="loading" size="default">
         <el-table-column prop="name" label="名称" min-width="180" />
         <el-table-column prop="description" label="描述" min-width="240" show-overflow-tooltip />
-        <el-table-column prop="document_count" label="文档数" width="100" />
+        <el-table-column label="文档数" width="110">
+          <template #default="{ row }">
+            <el-link
+              v-if="row.document_count"
+              type="primary"
+              @click="openDocuments({ category: row.id })"
+            >
+              {{ row.document_count }}
+            </el-link>
+            <span v-else class="muted">0</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="updated_at" label="更新时间" width="180">
           <template #default="{ row }">{{ fmt(row.updated_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
+            <el-button
+              link
+              type="primary"
+              size="small"
+              @click="openDocuments({ category: row.id })"
+            >
+              查看文档
+            </el-button>
             <el-button link type="primary" size="small" @click="rename(row)">重命名</el-button>
             <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
           </template>
@@ -43,14 +70,21 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { categoriesApi } from '@/api'
 import type { Category } from '@/api/types'
 
+const router = useRouter()
 const loading = ref(false)
 const items = ref<Category[]>([])
 const newName = ref('')
 const newDesc = ref('')
+
+/** 跳转到文档管理并预置分类筛选。 */
+function openDocuments(query: Record<string, string>) {
+  router.push({ path: '/documents', query })
+}
 
 const fmt = (v: string) => new Date(v).toLocaleString('zh-CN')
 
@@ -107,5 +141,11 @@ onMounted(load)
 }
 .mt {
   margin-top: 16px;
+}
+.guide {
+  margin-bottom: 16px;
+}
+.muted {
+  color: var(--kh-text-mute);
 }
 </style>

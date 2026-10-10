@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.factory import get_provider
 from app.ai.prompts import build_messages, insufficient_answer
+from app.ai.web_search import search_web
 from app.core.database import SessionLocal
 from app.core.exceptions import AIUnavailableError, NotFoundError
 from app.core.logging import get_logger
@@ -17,6 +18,7 @@ from app.models import Conversation, Message
 from app.models.conversation import MODE_DETAIL
 from app.rag.indexer import embed_query
 from app.rag.retriever import hybrid_search
+from app.rag.source_type import classify as classify_source
 from app.schemas.chat import AskRequest, ConversationCreate, ConversationUpdate
 from app.services import glossary_service
 
@@ -109,9 +111,9 @@ async def _answer_events(
     history: list[dict],
     use_web: bool = False,
 ) -> AsyncIterator[str]:
-    """执行「术语词典 + 检索 → 生成 → 保存」，产出 SSE 事件。
+    """执行「术语词典 + 检索（+ 联网）→ 生成 → 保存」，产出 SSE 事件。
 
-    事件类型：sources / glossary / thinking / delta / done / error。
+    事件类型：sources / glossary / web / thinking / delta / done / error。
     ask 与 regenerate 共用本函数，保证行为一致。
     """
     # 1) 优先检索专属术语词典（需求 17.3）
@@ -131,8 +133,19 @@ async def _answer_events(
     hits = hybrid_search(db, question, vec)
     yield _sse("sources", [h.model_dump(mode="json") for h in hits])
 
-    # 3) 既无资料也无术语命中：明确告知，不编造
-    if not hits and not glossary_terms:
+    # 3) 联网补充：仅当用户显式启用时才发起；未启用/失败时不联网、不伪称
+    web_results: list[dict] = []
+    web_note = ""
+    if use_web:
+        found, web_note = await search_web(question)
+        web_results = [r.as_dict() for r in found]
+        yield _sse(
+            "web",
+            {"results": web_results, "ok": bool(web_results), "message": web_note},
+        )
+
+    # 4) 既无资料、也无术语命中、也无联网结果：明确告知，不编造
+    if not hits and not glossary_terms and not web_results:
         text = insufficient_answer(hits)
         msg = Message(
             conversation_id=conv.id,
@@ -148,7 +161,7 @@ async def _answer_events(
         yield _sse("done", {"message_id": str(msg.id), "sources": []})
         return
 
-    # 4) 生成
+    # 5) 生成
     messages = build_messages(
         question,
         hits,
@@ -156,9 +169,12 @@ async def _answer_events(
         history=history,
         use_web=use_web,
         glossary=glossary_text,
+        web_results=web_results,
+        web_note=web_note,
     )
     provider = get_provider()
     collected: list[str] = []
+    reasoning_parts: list[str] = []
     reasoning_chars = 0
     try:
         stream = await provider.chat(messages, stream=True)
@@ -168,9 +184,11 @@ async def _answer_events(
             if not text:
                 continue
             if ctype == "reasoning":
-                # 推理模型的思考过程：只上报进度，不计入回答正文
+                # 推理模型的思考过程：增量透传给前端展示（类似 DeepSeek 的思考区），
+                # 同时累积保存，重开会话后仍可回看；但不计入回答正文。
+                reasoning_parts.append(text)
                 reasoning_chars += len(text)
-                yield _sse("thinking", {"chars": reasoning_chars})
+                yield _sse("thinking", {"text": text, "chars": reasoning_chars})
             else:
                 collected.append(text)
                 yield _sse("delta", {"text": text})
@@ -180,23 +198,29 @@ async def _answer_events(
 
     full = "".join(collected)
     sources = [h.model_dump(mode="json") for h in hits]
-    if not hits:
-        source_type = "专属术语词典"
-    elif len(hits) == 1:
-        source_type = "知识库原文"
-    else:
-        source_type = "知识库归纳推理"
+    source_type = classify_source(
+        hits=hits, web_results=web_results, glossary_terms=glossary_terms
+    )
     msg = Message(
         conversation_id=conv.id,
         role="assistant",
         content=full,
         sources=sources,
         source_type=source_type,
+        reasoning="".join(reasoning_parts) or None,
     )
     db.add(msg)
     db.commit()
     db.refresh(msg)
-    yield _sse("done", {"message_id": str(msg.id), "sources": sources})
+    yield _sse(
+        "done",
+        {
+            "message_id": str(msg.id),
+            "sources": sources,
+            "source_type": source_type,
+            "web_results": web_results,
+        },
+    )
 
 
 # ---------------- 提问 ----------------
@@ -230,8 +254,14 @@ async def ask_stream(conversation_id: uuid.UUID, payload: AskRequest) -> AsyncIt
 
 
 # ---------------- 重新生成 ----------------
-async def regenerate_stream(message_id: uuid.UUID) -> AsyncIterator[str]:
-    """重新生成某条 AI 回答（删除原回答后按同一提问重新检索与生成）。"""
+async def regenerate_stream(
+    message_id: uuid.UUID, use_web: bool = False
+) -> AsyncIterator[str]:
+    """重新生成某条 AI 回答（删除原回答后按同一提问重新检索与生成）。
+
+    use_web 由前端传入当前联网开关状态；默认 False——重新生成本身不构成
+    新的联网授权，因此不会主动外发（需求 14.5）。
+    """
     db = SessionLocal()
     try:
         target = db.get(Message, message_id)
@@ -283,7 +313,9 @@ async def regenerate_stream(message_id: uuid.UUID) -> AsyncIterator[str]:
         db.delete(target)
         db.commit()
 
-        async for event in _answer_events(db, conv, question, conv.mode, history):
+        async for event in _answer_events(
+            db, conv, question, conv.mode, history, use_web
+        ):
             yield event
     except Exception as exc:  # noqa: BLE001
         logger.exception("重新生成失败")

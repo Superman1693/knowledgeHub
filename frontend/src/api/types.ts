@@ -29,6 +29,17 @@ export interface DocumentListOut {
   items: DocumentOut[]
 }
 
+/** 知识片段（引用定位用）。 */
+export interface ChunkOut {
+  id: string
+  chunk_index: number
+  heading?: string | null
+  page_no?: number | null
+  content: string
+  token_count: number
+  has_embedding: boolean
+}
+
 export interface Category {
   id: string
   name: string
@@ -65,6 +76,9 @@ export interface SearchHit {
   score: number
   keyword_score?: number | null
   semantic_score?: number | null
+  /** 父子检索：命中片段所属父块的完整内容（用于「展开上下文」）。 */
+  parent_id?: string | null
+  parent_content?: string | null
 }
 
 export interface SearchResponse {
@@ -74,12 +88,23 @@ export interface SearchResponse {
   hits: SearchHit[]
 }
 
+/** 联网补充信息的一条结果（真实链接，来自联网检索）。 */
+export interface WebResult {
+  title: string
+  url: string
+  snippet: string
+}
+
 export interface MessageOut {
   id: string
   role: string
   content: string
   sources?: SearchHit[] | null
   source_type?: string | null
+  /** 联网结果仅随流式响应返回，不落库；重开会话后为 undefined。 */
+  web_results?: WebResult[] | null
+  /** 推理模型的思考过程（可空），用于折叠展示，不计入回答正文。 */
+  reasoning?: string | null
   created_at: string
 }
 
@@ -112,8 +137,15 @@ export interface SettingsOut {
   hybrid_alpha: number
   hybrid_beta: number
   search_top_k: number
+  chunk_mode: string
+  parent_child_enabled: boolean
   storage_mode: string
   default_answer_mode: string
+  web_search_enabled: boolean
+  web_search_provider: string
+  web_search_api_url: string
+  web_search_top_k: number
+  has_web_search_key: boolean
 }
 
 export interface IndexStatus {

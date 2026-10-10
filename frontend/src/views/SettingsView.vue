@@ -102,9 +102,74 @@
         <el-form-item label="数据目录">
           <el-input v-model="form.data_dir" disabled />
         </el-form-item>
-        <el-form-item label="存储模式">
+        <el-form-item label="分块方式">
+          <el-radio-group v-model="form.chunk_mode">
+            <el-radio-button value="semantic">语义分块</el-radio-button>
+            <el-radio-button value="rule">规则分块</el-radio-button>
+            <el-radio-button value="ai">AI 分块</el-radio-button>
+          </el-radio-group>
+          <span class="hint">
+            语义分块按句子向量相似度找话题断点，效果好且只消耗嵌入调用（推荐）；
+            规则分块按标题/段落/句子切分，快且零成本（模型不可用时的兜底）；
+            AI 分块由对话模型判断边界，最准但最贵，适合结构混乱的文档。
+            修改后需对文档「重建索引」才生效。
+          </span>
+        </el-form-item>
+
+        <el-form-item label="父子检索">
+          <el-switch v-model="form.parent_child_enabled" />
+          <span class="hint">
+            开启后，文档会同时切出「子块」（约 400 字，用于向量检索，匹配更精准）与
+            「父块」（约 1500 字，命中后回传给模型，上下文更完整）。
+            关闭则退化为单级分块。修改后需对文档「重建索引」才生效。
+          </span>
+        </el-form-item>
+
+        <el-form-item label="存储方案">
           <el-tag>{{ settings?.storage_mode }}</el-tag>
-          <span class="hint">默认使用本机 PostgreSQL + pgvector</span>
+          <span class="hint">本机 PostgreSQL 18 + pgvector（关系 + 向量 + 关键词一库覆盖）</span>
+        </el-form-item>
+
+        <el-divider content-position="left">联网补充</el-divider>
+
+        <el-form-item label="启用联网搜索">
+          <el-switch v-model="form.web_search_enabled" />
+          <span class="hint">
+            关闭时系统绝不联网；开启后可在问答页临时选择是否联网，
+            联网信息会标注 🌐 并附真实链接
+          </span>
+        </el-form-item>
+        <template v-if="form.web_search_enabled">
+          <el-form-item label="搜索服务">
+            <el-radio-group v-model="form.web_search_provider">
+              <el-radio-button value="bing">Bing（免密钥）</el-radio-button>
+              <el-radio-button value="duckduckgo">DuckDuckGo（需外网）</el-radio-button>
+              <el-radio-button value="custom">自备搜索 API</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <template v-if="form.web_search_provider === 'custom'">
+            <el-form-item label="搜索 API 地址">
+              <el-input
+                v-model="form.web_search_api_url"
+                placeholder="https://your-search.example.com/search"
+              />
+            </el-form-item>
+            <el-form-item label="搜索 API 密钥">
+              <el-input
+                v-model="webKey"
+                type="password"
+                show-password
+                :placeholder="settings?.has_web_search_key ? '已配置（留空则不修改）' : '未配置'"
+              />
+            </el-form-item>
+          </template>
+          <el-form-item label="返回条数">
+            <el-input-number v-model="form.web_search_top_k" :min="1" :max="8" />
+          </el-form-item>
+        </template>
+
+        <el-form-item>
+          <el-button type="primary" @click="save">保存设置</el-button>
         </el-form-item>
       </el-form>
     </div>
@@ -144,6 +209,7 @@ const testing = ref(false)
 const settings = ref<SettingsOut | null>(null)
 const apiKey = ref('')
 const embeddingKey = ref('')
+const webKey = ref('')
 const testResult = ref<{
   ok: boolean
   message: string
@@ -163,9 +229,15 @@ const form = reactive({
   request_timeout: 60,
   hybrid_alpha: 0.3,
   hybrid_beta: 0.7,
-  search_top_k: 8,
+  search_top_k: 10,
   max_upload_mb: 50,
   data_dir: '',
+  chunk_mode: 'semantic',
+  parent_child_enabled: true,
+  web_search_enabled: false,
+  web_search_provider: 'bing',
+  web_search_api_url: '',
+  web_search_top_k: 5,
 })
 
 const idx = ref<IndexStatus>({
@@ -198,6 +270,12 @@ async function load() {
       search_top_k: s.search_top_k,
       max_upload_mb: s.max_upload_mb,
       data_dir: s.data_dir,
+      chunk_mode: s.chunk_mode,
+      parent_child_enabled: s.parent_child_enabled,
+      web_search_enabled: s.web_search_enabled,
+      web_search_provider: s.web_search_provider,
+      web_search_api_url: s.web_search_api_url,
+      web_search_top_k: s.web_search_top_k,
     })
     idx.value = await settingsApi.indexStatus()
   } finally {
@@ -209,9 +287,11 @@ async function save() {
   const payload: Record<string, unknown> = { ...form }
   if (apiKey.value) payload.external_api_key = apiKey.value
   if (embeddingKey.value) payload.embedding_api_key = embeddingKey.value
+  if (webKey.value) payload.web_search_api_key = webKey.value
   settings.value = await settingsApi.update(payload)
   apiKey.value = ''
   embeddingKey.value = ''
+  webKey.value = ''
   ElMessage.success('设置已保存')
 }
 
