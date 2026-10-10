@@ -1,0 +1,43 @@
+# ===== 环境与密钥 =====
+.env
+.env.local
+
+# 启动脚本记录的运行时端口
+.kh_runtime.json
+
+# ===== 运行期数据（正式数据 / 缓存 / 导出 / 日志）=====
+data/
+!data/.gitkeep
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Node / 前端 =====
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+
+# ===== 备份与数据库文件 =====
+*.bak
+*.backup
+backups/
+*.db
+*.sqlite
+*.sqlite3
+
+# ===== 编辑器 / 系统 =====
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ===== AI 助手本地工作记忆（非项目源码）=====
+.workbuddy-ai/

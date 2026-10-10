@@ -1,0 +1,155 @@
+<template>
+  <div class="page">
+    <h2 class="page-title">导入文档</h2>
+    <p class="page-sub">支持 Markdown、文本、PDF、Word、代码等多种格式，拖拽即可导入</p>
+
+    <div class="card">
+      <el-upload
+        drag
+        multiple
+        :auto-upload="false"
+        :show-file-list="true"
+        :file-list="fileList"
+        :on-change="onChange"
+        :on-remove="onRemove"
+        :limit="50"
+      >
+        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+        <div class="el-upload__text">把文件拖到这里，或<em>点击选择</em></div>
+        <template #tip>
+          <div class="el-upload__tip">
+            单个文件不超过 {{ maxMb }} MB。重复文件会给出提示但不会自动覆盖。
+          </div>
+        </template>
+      </el-upload>
+
+      <div class="mt">
+        <el-button type="primary" :loading="uploading" :disabled="!fileList.length" @click="submit">
+          开始导入（{{ fileList.length }} 个文件）
+        </el-button>
+        <el-button @click="fileList = []">清空</el-button>
+      </div>
+    </div>
+
+    <div v-if="results.length" class="card mt">
+      <div class="section-title">导入结果</div>
+      <el-table :data="results" size="small">
+        <el-table-column prop="title" label="文件" min-width="220" show-overflow-tooltip />
+        <el-table-column label="状态" width="120">
+          <template #default="{ row }">
+            <el-tag :type="statusType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="重复提示" width="120">
+          <template #default="{ row }">
+            <el-tag v-if="row.duplicate_warning" type="warning" size="small">疑似重复</el-tag>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="120">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="$router.push(`/documents/${row.id}`)">
+              查看
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-alert
+        class="mt-sm"
+        type="info"
+        :closable="false"
+        title="文档正在后台解析与建立索引，状态会从「等待」变为「已索引」。若嵌入模型不可用，状态会显示为「失败」，可稍后在文档管理中重建索引。"
+      />
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import type { UploadFile, UploadFiles } from 'element-plus'
+import { documentsApi, settingsApi } from '@/api'
+import type { DocStatus } from '@/api/types'
+import { docStatusText as statusText, docStatusType as statusType } from '@/utils/status'
+
+const fileList = ref<UploadFiles>([])
+const uploading = ref(false)
+const maxMb = ref(50)
+
+interface ResultRow {
+  id: string
+  title: string
+  status: DocStatus
+  duplicate_warning: boolean
+}
+
+const results = ref<ResultRow[]>([])
+
+function onChange(_file: UploadFile, files: UploadFiles) {
+  fileList.value = files
+}
+function onRemove(_file: UploadFile, files: UploadFiles) {
+  fileList.value = files
+}
+
+async function submit() {
+  const raw = fileList.value.map((f) => f.raw).filter(Boolean) as File[]
+  if (!raw.length) return
+  uploading.value = true
+  try {
+    const res = await documentsApi.upload(raw)
+    results.value = res.items.map((it) => ({
+      id: it.document.id,
+      title: it.document.title,
+      status: it.document.status,
+      duplicate_warning: it.duplicate_warning,
+    }))
+    ElMessage.success(`已提交 ${raw.length} 个文件，正在后台处理`)
+    fileList.value = []
+    poll()
+  } finally {
+    uploading.value = false
+  }
+}
+
+/** 轮询刷新处理状态。 */
+function poll() {
+  let rounds = 0
+  const timer = setInterval(async () => {
+    rounds += 1
+    let allDone = true
+    for (const row of results.value) {
+      try {
+        const doc = await documentsApi.get(row.id)
+        row.status = doc.status
+        if (doc.status === 'pending' || doc.status === 'processing') allDone = false
+      } catch {
+        /* ignore */
+      }
+    }
+    if (allDone || rounds > 60) clearInterval(timer)
+  }, 2000)
+}
+
+onMounted(async () => {
+  try {
+    const s = await settingsApi.get()
+    maxMb.value = s.max_upload_mb
+  } catch {
+    /* 使用默认值 */
+  }
+})
+</script>
+
+<style scoped>
+.section-title {
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.mt {
+  margin-top: 16px;
+}
+.mt-sm {
+  margin-top: 12px;
+}
+</style>
