@@ -43,3 +43,7 @@ Thumbs.db
 
 # ===== AI 助手本地工作记忆（非项目源码）=====
 .workbuddy-ai/
+
+# ===== 构建产物 =====
+frontend/tsconfig.tsbuildinfo
+frontend/vite.config.ts.timestamp-*.mjs
