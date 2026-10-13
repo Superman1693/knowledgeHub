@@ -31,6 +31,12 @@ class SettingsOut(BaseModel):
     web_search_api_url: str = ""
     web_search_top_k: int = 5
     has_web_search_key: bool = False
+    # LLM 重排序（检索后用对话模型精排）。此前后端已实现但设置页无法开启，
+    # 等于功能不可达——这里补上开关与候选数量。
+    rerank_enabled: bool = False
+    rerank_candidates: int = 10
+    # 回收站保留天数：0 = 永不自动清理（默认）
+    trash_retention_days: int = 0
 
 
 class SettingsUpdate(BaseModel):
@@ -57,6 +63,11 @@ class SettingsUpdate(BaseModel):
     web_search_api_url: str | None = None
     web_search_api_key: str | None = None
     web_search_top_k: int | None = None
+    # LLM 重排序：开启后检索会用对话模型对候选重新排序（更准，但更慢、更费额度）
+    rerank_enabled: bool | None = None
+    rerank_candidates: int | None = Field(default=None, ge=1, le=50)
+    # 回收站保留天数：0 = 永不自动清理
+    trash_retention_days: int | None = Field(default=None, ge=0, le=3650)
 
 
 class ModelTestResult(BaseModel):
@@ -76,6 +87,9 @@ class IndexStatusOut(BaseModel):
     failed: int
     chunk_total: int
     embedded_chunks: int
+    # 此前 service 层已计算、但 schema 未声明 → 被 Pydantic 静默丢弃
+    note_total: int = 0
+    trash_total: int = 0
 
 
 class HealthOut(BaseModel):
@@ -85,3 +99,9 @@ class HealthOut(BaseModel):
     storage_mode: str
     ai_mode: str
     data_dir: str
+    # 可选能力状态：让用户一眼看出分词与 OCR 是否生效
+    segmentation: str = "bigram"  # jieba / bigram
+    ocr_engine: str | None = None  # rapidocr / tesseract / None（不可用）
+    ocr_available: bool = False
+    # 拼音检索是否可用（未安装 pypinyin 时为 False，检索退回纯文本匹配）
+    pinyin_search: bool = False

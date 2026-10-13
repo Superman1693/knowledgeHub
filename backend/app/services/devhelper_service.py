@@ -48,9 +48,13 @@ def _parse_json(raw: str, expect: type) -> object:
 
 
 async def _search_context(db: Session, query: str, top_k: int = CONTEXT_TOP_K) -> list[dict]:
-    """检索知识库作为依据，返回带来源的信息列表。"""
+    """检索知识库作为依据，返回带来源的信息列表。
+
+    隐私：检索结果会交给对话模型，因此**强制 `ai_only=True`**——
+    与 RAG 问答一致，标记为「不允许 AI 读取」的笔记在 SQL 层即被排除。
+    """
     vec = await embed_query(query)
-    hits = hybrid_search(db, query, vec, top_k=top_k)
+    hits = hybrid_search(db, query, vec, top_k=top_k, ai_only=True)
     return [
         {
             "document_title": h.document_title,

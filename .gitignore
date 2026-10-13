@@ -18,6 +18,9 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+# pytest 的临时目录：本机把 %TEMP% 下的临时目录纳入「安全删除」保护，
+# 跑测试时会被中断，故改用项目内固定目录（见 README「测试」一节）
+.pytest_tmp/
 .mypy_cache/
 .ruff_cache/
 
@@ -42,6 +45,7 @@ backups/
 Thumbs.db
 
 # ===== AI 助手本地工作记忆（非项目源码）=====
+.workbuddy/
 .workbuddy-ai/
 
 # ===== 构建产物 =====

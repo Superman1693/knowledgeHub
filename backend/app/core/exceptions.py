@@ -52,6 +52,18 @@ class StorageError(AppError):
     code = "STORAGE_ERROR"
 
 
+class ConflictError(AppError):
+    """并发修改冲突（乐观锁失败）。
+
+    典型场景：笔记在应用外（VS Code / Typora）被改动，而应用内也正在编辑，
+    保存时底层内容已被改写。此时宁可**拒绝保存并让用户对比**，
+    也不要静默覆盖掉另一份修改——那会无声地丢内容。
+    """
+
+    status_code = 409
+    code = "CONFLICT"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def _app_error_handler(_: Request, exc: AppError) -> JSONResponse:

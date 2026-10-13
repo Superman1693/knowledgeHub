@@ -64,19 +64,27 @@ chunk_index 是该题依据的资料编号（对应下方 [n] 标号）。
 
 
 def _pick_chunks(db: Session, count: int, direction: str | None) -> list[Chunk]:
-    """从知识库中挑选出题素材（优先语义相关、且内容较完整的片段）。"""
-    stmt = select(Chunk).where(Chunk.embedding.is_not(None))
+    """从知识库中挑选出题素材（优先语义相关、且内容较完整的片段）。
+
+    隐私与一致性：出题素材会被整段发送给对话模型，因此**必须在 SQL 层**
+    排除回收站文档（`deleted_at`）与「不允许 AI 读取」的笔记（`ai_enabled=false`），
+    而不是只靠提示词约束——与 RAG 问答的隐私口径保持一致。
+    """
+    base = (
+        select(Chunk)
+        .join(Document, Document.id == Chunk.document_id)
+        .where(
+            Chunk.embedding.is_not(None),
+            Document.deleted_at.is_(None),
+            Document.ai_enabled.is_(True),
+        )
+    )
+    stmt = base
     if direction:
         stmt = stmt.where(Chunk.content.ilike(f"%{direction}%"))
     rows = list(db.execute(stmt.limit(count * 4)).scalars().all())
-    if not rows:  # 方向没匹配到就退回全库
-        rows = list(
-            db.execute(
-                select(Chunk).where(Chunk.embedding.is_not(None)).limit(count * 4)
-            )
-            .scalars()
-            .all()
-        )
+    if not rows and direction:  # 方向没匹配到就退回全库（仍保持隐私过滤）
+        rows = list(db.execute(base.limit(count * 4)).scalars().all())
     rows.sort(key=lambda c: len(c.content), reverse=True)
     return rows[:count]
 

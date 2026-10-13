@@ -9,7 +9,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
 import mermaid from 'mermaid'
 
 const props = defineProps<{ code: string }>()
@@ -21,7 +21,9 @@ const loading = ref(false)
 mermaid.initialize({
   startOnLoad: false,
   theme: 'default',
-  securityLevel: 'loose',
+  // 图表代码来自 AI 生成结果：必须用 strict。
+  // loose 模式会放行标签内的 HTML 与点击事件，等于给 AI 输出开了注入口子。
+  securityLevel: 'strict',
   fontFamily: 'inherit',
 })
 
@@ -35,6 +37,9 @@ async function render() {
   }
   loading.value = true
   error.value = ''
+  // 出错分支会卸载 host 节点；等 DOM 更新完再取引用，
+  // 否则「先失败、后成功」时 host.value 仍是 null，图表会渲染成空白。
+  await nextTick()
   try {
     // mermaid.render 需要唯一 id，否则重复渲染会命中缓存
     const { svg } = await mermaid.render(`kh-mermaid-${Date.now()}-${seq++}`, code)

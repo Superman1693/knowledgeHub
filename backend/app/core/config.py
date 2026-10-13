@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     hybrid_alpha: float = 0.3  # 关键词权重
     hybrid_beta: float = 0.7  # 语义权重
     search_top_k: int = 8
+    # LLM 重排序：检索后用对话模型对 top 候选按相关性重排（提升精度，但增加延迟与额度）
+    rerank_enabled: bool = False
+    rerank_candidates: int = 10  # 送入重排的候选片段数
     # 子块目标长度（检索粒度）：小块语义集中，向量匹配更精准
     chunk_size: int = 400
     chunk_overlap: int = 80
@@ -94,6 +97,12 @@ class Settings(BaseSettings):
     parent_child_enabled: bool = True
     # 父块目标长度（回传粒度）
     parent_chunk_size: int = 1500
+
+    # ---------- 数据维护 ----------
+    # 回收站保留天数：**0 = 永不自动清理**（默认）。
+    # 「我以为它还在」的内容被系统悄悄删掉，比一直占着磁盘更糟，
+    # 因此默认关闭，只有用户显式设了天数才会在启动时清理超期项。
+    trash_retention_days: int = 0
 
     # ---------- 派生属性 ----------
     @property
@@ -117,6 +126,11 @@ class Settings(BaseSettings):
     @property
     def documents_path(self) -> Path:
         return self.data_path / "documents"
+
+    @property
+    def templates_path(self) -> Path:
+        """笔记模板目录（Markdown 文件，新建笔记时可选用）。"""
+        return self.data_path / "templates"
 
     @property
     def attachments_path(self) -> Path:
@@ -161,6 +175,7 @@ class Settings(BaseSettings):
         for p in (
             self.data_path,
             self.documents_path,
+            self.templates_path,
             self.attachments_path,
             self.exports_path,
             self.backups_path,

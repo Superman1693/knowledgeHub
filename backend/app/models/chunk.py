@@ -28,6 +28,20 @@ class Chunk(Base, IdMixin, TimestampMixin):
             postgresql_using="gin",
             postgresql_ops={"content": "gin_trgm_ops"},
         ),
+        # 拼音列的 trgm 索引：查询是 `pinyin ILIKE '%xiang%'`，
+        # 没有索引会退化成全表扫描（拼音串很长，代价比 content 还高）。
+        Index(
+            "ix_chunks_pinyin_trgm",
+            "pinyin",
+            postgresql_using="gin",
+            postgresql_ops={"pinyin": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_chunks_pinyin_initials_trgm",
+            "pinyin_initials",
+            postgresql_using="gin",
+            postgresql_ops={"pinyin_initials": "gin_trgm_ops"},
+        ),
     )
 
     document_id: Mapped[uuid.UUID] = mapped_column(
@@ -36,6 +50,10 @@ class Chunk(Base, IdMixin, TimestampMixin):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     heading: Mapped[str | None] = mapped_column(String(512))
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # 拼音检索列：全拼与首字母，都不加分隔符。
+    # 可空 —— pypinyin 未安装或老数据未回填时为 NULL，检索自动退回纯文本匹配。
+    pinyin: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pinyin_initials: Mapped[str | None] = mapped_column(Text, nullable=True)
     page_no: Mapped[int | None] = mapped_column(Integer)
     token_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 

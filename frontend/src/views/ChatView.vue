@@ -311,7 +311,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { askStream, chatApi, regenerateStream, settingsApi } from '@/api'
@@ -351,6 +351,9 @@ const inputEl = ref<HTMLTextAreaElement | null>(null)
 // 是否吸附在底部：用户手动上滑后置 false，避免生成过程把用户拽回底部
 const stickToBottom = ref(true)
 let aborter: AbortController | null = null
+// 会话切换的请求序号：快速点击多个会话时，只允许最后一次请求写入 messages，
+// 否则先发出的慢响应会覆盖后选中的会话内容。
+let convSeq = 0
 
 const examples = [
   '总结一下我最近导入的文档讲了什么',
@@ -474,8 +477,11 @@ async function newConversation() {
 }
 
 async function selectConversation(id: string) {
+  const mySeq = ++convSeq
   currentId.value = id
   const detail = await chatApi.get(id)
+  // 期间又切到了别的会话 → 丢弃这次结果，避免「地址栏/高亮是 B，内容却是 A」
+  if (mySeq !== convSeq) return
   messages.value = detail.messages
   mode.value = detail.mode
   scrollToBottom()
@@ -610,10 +616,14 @@ async function send() {
         await finalize(streamText.value, true)
       },
       onError: (msg) => {
-        streaming.value = false
-        streamText.value = ''
-        aborter = null
         ElMessage.error(msg)
+        // 已经生成了一部分内容：保留它并标记为中断，不要静默丢弃用户的等待
+        if (streamText.value.trim()) {
+          void finalize(streamText.value, true)
+        } else {
+          streaming.value = false
+          aborter = null
+        }
       },
     },
     aborter.signal,
@@ -738,6 +748,12 @@ onMounted(async () => {
   await loadWebSetting()
   await loadConversations()
   if (conversations.value.length) await selectConversation(conversations.value[0].id)
+})
+
+onBeforeUnmount(() => {
+  // 生成中离开页面：中止在途的 SSE 请求，避免响应回来后写入已卸载组件的状态
+  aborter?.abort()
+  aborter = null
 })
 </script>
 

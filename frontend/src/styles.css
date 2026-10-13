@@ -80,6 +80,78 @@
     'Hiragino Sans GB', 'Microsoft YaHei', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
+/* ============================================================
+   暗色主题
+   由 MainLayout 在 <html> 上设置 data-theme="dark"（偏好存 localStorage）。
+   只覆盖颜色相关变量，布局/圆角/尺寸沿用 :root，避免两套样式漂移。
+   ============================================================ */
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* ---- 主色：提亮，保证在深色底上的对比度 ---- */
+  --kh-primary: #8b9cf5;
+  --kh-primary-dark: #7c8ef0;
+  --kh-primary-soft: #232741;
+  --kh-primary-border: #3a4066;
+
+  /* ---- 中性色：深灰蓝，不用纯黑，减少长时间阅读疲劳 ---- */
+  --kh-bg: #15171c;
+  --kh-bg-deep: #1b1e25;
+  --kh-panel: #1f232b;
+  --kh-border: #2f343e;
+  --kh-border-light: #262b33;
+
+  --kh-text: #e6e8ec;
+  --kh-text-sub: #a3aab7;
+  --kh-text-mute: #6f7787;
+
+  /* ---- 语义色 ---- */
+  --kh-success: #4cc38a;
+  --kh-success-soft: #17281f;
+  --kh-warning: #d9a441;
+  --kh-warning-soft: #2a2318;
+  --kh-danger: #e0716c;
+  --kh-danger-soft: #2c1d1d;
+
+  /* ---- 阴影：深色下加重，否则看不出层次 ---- */
+  --kh-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --kh-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --kh-shadow-lg: 0 10px 28px rgba(0, 0, 0, 0.5);
+
+  /* ---- Element Plus 覆盖 ---- */
+  --el-color-primary: #8b9cf5;
+  --el-color-primary-light-3: #6f7fd8;
+  --el-color-primary-light-5: #59659f;
+  --el-color-primary-light-7: #3d4570;
+  --el-color-primary-light-8: #333a5c;
+  --el-color-primary-light-9: #2a2f4a;
+  --el-color-primary-dark-2: #a3b1f7;
+
+  --el-color-success: #4cc38a;
+  --el-color-success-light-9: #17281f;
+  --el-color-warning: #d9a441;
+  --el-color-warning-light-9: #2a2318;
+  --el-color-danger: #e0716c;
+  --el-color-danger-light-9: #2c1d1d;
+  --el-color-info: #a3aab7;
+
+  --el-text-color-primary: #e6e8ec;
+  --el-text-color-regular: #cdd2da;
+  --el-text-color-secondary: #a3aab7;
+  --el-text-color-placeholder: #6f7787;
+
+  --el-border-color: #2f343e;
+  --el-border-color-light: #2a2f38;
+  --el-border-color-lighter: #262b33;
+  --el-fill-color-blank: #1f232b;
+  --el-fill-color-light: #23272f;
+
+  --el-bg-color: #1f232b;
+  --el-bg-color-overlay: #23272f;
+  --el-bg-color-page: #15171c;
+  --el-mask-color: rgba(0, 0, 0, 0.6);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -497,4 +569,86 @@ body {
 
 .el-tag {
   font-weight: 500;
+}
+
+/* ===== 正文双链 `[[标题]]` 与块级引用 `![[标题#小节]]` =====
+   这两个类由 utils/markdown.ts 在 HTML 层注入（markdown-it 不认识双方括号），
+   所以必须放在全局样式里——注入后的 <a> 不属于任何组件的 scoped 作用域。 */
+
+.kh-wikilink {
+  color: var(--kh-primary);
+  cursor: pointer;
+  text-decoration: none;
+  border-bottom: 1px dashed var(--kh-primary-border);
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.kh-wikilink:hover {
+  color: var(--kh-primary-dark);
+  border-bottom-style: solid;
+}
+
+/* 嵌入引用：视觉上与普通链接明确区分，避免用户分不清「引用」和「嵌入」 */
+.kh-embed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--kh-text-sub);
+  cursor: pointer;
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: var(--kh-primary-soft);
+  border: 1px solid var(--kh-primary-border);
+  font-size: 0.92em;
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.kh-embed::before {
+  content: '❏';
+  font-size: 0.9em;
+  opacity: 0.75;
+}
+
+.kh-embed:hover {
+  color: var(--kh-primary);
+  background: var(--kh-primary-soft);
+  border-color: var(--kh-primary);
+}
+
+/* ===== 窄屏通用兜底 =====
+   侧栏抽屉在 MainLayout 里处理（860px）；这里是各页面共通的几条：
+   1. 表格允许横向滚动而不是把页面撑破；
+   2. 代码块 / 预格式文本不溢出；
+   3. 两栏对比类布局在窄屏塌成单栏。
+   刻意不做「每个 View 各自加断点」——那会造成大量重复且容易漏，
+   共通的在这里收口，特殊的（编辑器分栏、问答会话列表）在各组件内单独处理。 */
+
+@media (max-width: 860px) {
+  /* 宽表格：横向滚动，避免把整个页面撑出横向滚动条 */
+  .el-table {
+    width: 100% !important;
+  }
+
+  .el-table__body-wrapper,
+  .el-table__header-wrapper {
+    overflow-x: auto;
+  }
+
+  /* 代码块不撑破容器 */
+  pre,
+  .hljs {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  /* 页头标题与操作按钮在窄屏堆叠，避免标题被按钮挤出屏幕 */
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page-header > * {
+    width: 100%;
+  }
 }

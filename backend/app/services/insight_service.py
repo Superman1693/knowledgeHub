@@ -21,6 +21,8 @@ from app.models import Chunk, Document
 logger = get_logger(__name__)
 
 SNIPPET_LEN = 160
+# 冗余检测：每个片段只取最近邻的候选数（越小越快，越大召回越全）
+NEIGHBORS = 5
 
 
 def _brief(content: str, length: int = SNIPPET_LEN) -> str:
@@ -37,6 +39,11 @@ def find_duplicates(
 
     纯向量计算、不调用对话模型。同一文档内与跨文档的重复都会列出，
     由用户判断是保留、合并还是删除 —— 系统不自动改动内容。
+
+    性能：旧实现用 `chunks a JOIN chunks b ON a.id < b.id` 做**全量笛卡尔配对**，
+    片段数一多就是 O(n²) 且无法走 HNSW 索引。这里改为
+    `CROSS JOIN LATERAL`——对每个片段只取最近的 `NEIGHBORS` 个候选，
+    可直接命中 `ix_chunks_embedding_hnsw`；`a.id < b.id` 保证每对只出现一次。
     """
     sql = text(
         """
@@ -44,19 +51,33 @@ def find_duplicates(
                da.id AS a_doc, da.title AS a_title,
                b.id AS b_id, b.content AS b_content, b.heading AS b_heading,
                dbb.id AS b_doc, dbb.title AS b_title,
-               (a.embedding <=> b.embedding) AS distance
+               b.distance
         FROM chunks a
-        JOIN chunks b ON a.id < b.id
         JOIN documents da ON da.id = a.document_id
+        CROSS JOIN LATERAL (
+            SELECT c.id, c.content, c.heading, c.document_id,
+                   (c.embedding <=> a.embedding) AS distance
+            FROM chunks c
+            WHERE c.embedding IS NOT NULL
+              AND c.id <> a.id
+            ORDER BY c.embedding <=> a.embedding
+            LIMIT :neighbors
+        ) b
         JOIN documents dbb ON dbb.id = b.document_id
         WHERE a.embedding IS NOT NULL
-          AND b.embedding IS NOT NULL
-          AND (a.embedding <=> b.embedding) < :th
-        ORDER BY distance ASC
+          AND a.id < b.id
+          AND da.deleted_at IS NULL
+          AND dbb.deleted_at IS NULL
+          AND b.distance < :th
+        ORDER BY b.distance ASC
         LIMIT :lim
         """
     )
-    rows = db.execute(sql, {"th": threshold, "lim": limit}).mappings().all()
+    rows = (
+        db.execute(sql, {"th": threshold, "lim": limit, "neighbors": NEIGHBORS})
+        .mappings()
+        .all()
+    )
     return [
         {
             "distance": round(float(r["distance"]), 4),
@@ -89,6 +110,11 @@ def related_documents(
     """给定文档，找出与之内容最相近的其它文档（按片段平均余弦距离）。
 
     用于发现「同一主题散落在多篇笔记」的情况，帮助建立知识关联。
+
+    实现要点：
+    - 源文档用**全部片段的质心向量**（`avg(embedding)`）代表整篇，而不是只取
+      第一个片段——单片段无法代表长文档的主题；
+    - 排除回收站中的候选文档，与检索层口径一致。
     """
     doc = db.get(Document, document_id)
     if not doc:
@@ -97,17 +123,18 @@ def related_documents(
     sql = text(
         """
         WITH src AS (
-            SELECT embedding FROM chunks
+            SELECT avg(embedding) AS centroid FROM chunks
             WHERE document_id = CAST(:did AS uuid) AND embedding IS NOT NULL
         )
         SELECT d.id, d.title, d.chunk_count,
-               AVG(c.embedding <=> (SELECT embedding FROM src LIMIT 1)) AS avg_distance,
+               AVG(c.embedding <=> (SELECT centroid FROM src)) AS avg_distance,
                COUNT(*) AS matched
         FROM chunks c
         JOIN documents d ON d.id = c.document_id
         WHERE c.document_id <> CAST(:did AS uuid)
           AND c.embedding IS NOT NULL
-          AND (SELECT count(*) FROM src) > 0
+          AND d.deleted_at IS NULL
+          AND (SELECT centroid FROM src) IS NOT NULL
         GROUP BY d.id, d.title, d.chunk_count
         ORDER BY avg_distance ASC
         LIMIT :lim
@@ -119,7 +146,12 @@ def related_documents(
             "document_id": str(r["id"]),
             "document_title": r["title"],
             "chunk_count": r["chunk_count"],
-            "similarity": round(1 - float(r["avg_distance"] or 1), 4),
+            "similarity": (
+                # 距离为 0（完全相同）是合法值，不能用 `or` 兜底（0 是假值）
+                round(1 - float(r["avg_distance"]), 4)
+                if r["avg_distance"] is not None
+                else 0.0
+            ),
         }
         for r in rows
     ]

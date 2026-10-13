@@ -6,7 +6,15 @@
         <p class="page-sub">浏览、筛选、预览、删除与导出你的本地文档</p>
       </div>
       <div class="page-actions">
-        <el-button type="primary" @click="$router.push('/upload')">
+        <el-button type="primary" @click="$router.push('/notes/new')">
+          <el-icon><EditPen /></el-icon>
+          <span>新建笔记</span>
+        </el-button>
+        <el-button @click="exportAll">
+          <el-icon><Download /></el-icon>
+          <span>整库导出</span>
+        </el-button>
+        <el-button @click="$router.push('/upload')">
           <el-icon><UploadFilled /></el-icon>
           <span>导入文档</span>
         </el-button>
@@ -14,6 +22,16 @@
     </div>
 
     <div class="card toolbar">
+      <el-radio-group v-model="filters.view" size="small" @change="onViewChange">
+        <el-radio-button value="all">全部</el-radio-button>
+        <el-radio-button value="favorite">收藏</el-radio-button>
+        <el-radio-button value="pinned">置顶</el-radio-button>
+        <el-radio-button value="recent">最近访问</el-radio-button>
+        <el-radio-button value="note">我的笔记</el-radio-button>
+      </el-radio-group>
+    </div>
+
+    <div class="card toolbar mt">
       <el-input v-model="filters.q" placeholder="搜索标题 / 文件名" clearable style="width: 220px" @keyup.enter="reload" />
       <el-select v-model="filters.category_id" placeholder="全部分类" clearable style="width: 160px" @change="reload">
         <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
@@ -29,10 +47,67 @@
     </div>
 
     <div class="card mt">
-      <el-table :data="items" v-loading="loading" size="default">
+      <!-- 批量操作条：勾选后才出现，避免长期占用视觉空间 -->
+      <div v-if="selected.length" class="batch-bar">
+        <span class="batch-count">已选 {{ selected.length }} 篇</span>
+        <el-button size="small" @click="batch('favorite', { value: true })">收藏</el-button>
+        <el-button size="small" @click="batch('favorite', { value: false })">取消收藏</el-button>
+        <el-button size="small" @click="batch('pin', { value: true })">置顶</el-button>
+        <el-button size="small" @click="batch('pin', { value: false })">取消置顶</el-button>
+        <el-select
+          v-model="batchCategory"
+          placeholder="移动分类"
+          size="small"
+          clearable
+          style="width: 150px"
+          @change="onBatchMove"
+        >
+          <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
+        </el-select>
+        <el-button size="small" @click="batchTag">打标签</el-button>
+        <el-button size="small" type="danger" plain @click="batchRemove">移入回收站</el-button>
+        <el-button size="small" link @click="clearSelection">取消选择</el-button>
+      </div>
+
+      <el-table
+        ref="tableEl"
+        :data="items"
+        v-loading="loading"
+        size="default"
+        row-key="id"
+        @selection-change="onSelectionChange"
+      >
+        <el-table-column type="selection" width="44" />
+        <el-table-column label="" width="78" align="center">
+          <template #default="{ row }">
+            <el-tooltip :content="row.is_favorite ? '取消收藏' : '加入收藏'">
+              <el-icon
+                class="mark-icon"
+                :class="{ 'is-on': row.is_favorite }"
+                @click="toggleFavorite(row)"
+              >
+                <StarFilled v-if="row.is_favorite" />
+                <Star v-else />
+              </el-icon>
+            </el-tooltip>
+            <el-tooltip :content="row.is_pinned ? '取消置顶' : '置顶'">
+              <el-icon
+                class="mark-icon"
+                :class="{ 'is-on': row.is_pinned }"
+                @click="togglePinned(row)"
+              >
+                <Top />
+              </el-icon>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column prop="title" label="标题" min-width="240" show-overflow-tooltip>
           <template #default="{ row }">
             <el-link type="primary" @click="$router.push(`/documents/${row.id}`)">{{ row.title }}</el-link>
+            <el-tag v-if="row.source === 'note'" size="small" effect="plain" class="title-tag">笔记</el-tag>
+            <el-tooltip v-if="row.ai_enabled === false" content="私密笔记：不进入 AI 检索范围">
+              <el-tag size="small" type="info" effect="plain" class="title-tag">私密</el-tag>
+            </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column prop="file_type" label="类型" width="90" />
@@ -50,8 +125,15 @@
         <el-table-column prop="updated_at" label="更新时间" width="170">
           <template #default="{ row }">{{ fmt(row.updated_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="272" fixed="right">
           <template #default="{ row }">
+            <el-button
+              v-if="isEditable(row)"
+              link
+              type="primary"
+              size="small"
+              @click="$router.push(`/notes/${row.id}/edit`)"
+            >编辑</el-button>
             <el-button link type="primary" size="small" @click="reindex(row)">重建索引</el-button>
             <el-button link type="primary" size="small" @click="exportDoc(row)">导出</el-button>
             <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
@@ -71,9 +153,14 @@
               }}
             </div>
             <el-button v-if="hasFilter" @click="resetFilters">清空筛选</el-button>
-            <el-button v-else type="primary" @click="$router.push('/upload')">
-              <el-icon><UploadFilled /></el-icon> 导入文档
-            </el-button>
+            <template v-else>
+              <el-button type="primary" @click="$router.push('/notes/new')">
+                <el-icon><EditPen /></el-icon> 新建笔记
+              </el-button>
+              <el-button @click="$router.push('/upload')">
+                <el-icon><UploadFilled /></el-icon> 导入文档
+              </el-button>
+            </template>
           </div>
         </template>
       </el-table>
@@ -113,7 +200,50 @@ const filters = reactive({
   sort: 'updated_at',
   page: 1,
   page_size: 20,
+  /** all | favorite | pinned | recent | note */
+  view: 'all',
 })
+
+/** 可在应用内编辑的纯文本格式（二进制格式不回写磁盘，故不提供编辑入口）。 */
+const TEXT_TYPES = new Set([
+  'md', 'markdown', 'txt', 'py', 'js', 'ts', 'jsx', 'tsx', 'html', 'htm', 'css',
+  'json', 'yaml', 'yml', 'ini', 'toml', 'conf', 'cfg', 'env', 'java', 'go', 'rs',
+  'c', 'cpp', 'h', 'hpp', 'cs', 'php', 'rb', 'sql', 'sh', 'bat', 'xml', 'csv', 'log',
+])
+
+function isEditable(row: DocumentOut): boolean {
+  return TEXT_TYPES.has((row.file_type || '').toLowerCase())
+}
+
+function onViewChange() {
+  filters.page = 1
+  reload()
+}
+
+async function toggleFavorite(row: DocumentOut) {
+  const next = !row.is_favorite
+  const updated = await documentsApi.setFavorite(row.id, next)
+  row.is_favorite = updated.is_favorite
+}
+
+async function togglePinned(row: DocumentOut) {
+  const next = !row.is_pinned
+  const updated = await documentsApi.setPinned(row.id, next)
+  row.is_pinned = updated.is_pinned
+  // 置顶会改变排序，重新拉取以体现顺序
+  reload()
+}
+
+async function exportAll() {
+  try {
+    const res = await documentsApi.exportAll()
+    ElMessage.success(
+      `已导出 ${res.count} 篇到 ${res.path}（含 YAML front-matter，可直接迁移）`,
+    )
+  } catch {
+    /* 错误提示由拦截器处理 */
+  }
+}
 
 /** 是否处于筛选状态（用于区分「空库」与「无匹配结果」） */
 const hasFilter = computed(
@@ -169,19 +299,95 @@ async function exportDoc(row: DocumentOut) {
 
 async function remove(row: DocumentOut) {
   await ElMessageBox.confirm(
-    `确定删除《${row.title}》？将同时删除原始文件与向量索引，且不可恢复。`,
-    '删除确认',
-    { type: 'warning' },
+    `《${row.title}》将被移入回收站（原文件与索引保留，可随时恢复）。是否继续？`,
+    '移入回收站',
+    { type: 'warning', confirmButtonText: '移入回收站', cancelButtonText: '取消' },
   )
   await documentsApi.remove(row.id)
-  ElMessage.success('已删除')
+  ElMessage.success('已移入回收站')
   reload()
 }
 
+// ---------------- 批量操作 ----------------
+const tableEl = ref<{ clearSelection: () => void } | null>(null)
+const selected = ref<DocumentOut[]>([])
+const batchCategory = ref<string | null>(null)
+
+function onSelectionChange(rows: DocumentOut[]) {
+  selected.value = rows
+}
+
+function clearSelection() {
+  tableEl.value?.clearSelection()
+  selected.value = []
+}
+
+/** 执行批量操作，逐条处理结果如实反馈（后端不做整批回滚）。 */
+async function runBatch(
+  action: 'favorite' | 'pin' | 'move' | 'tag' | 'delete',
+  extra: Record<string, unknown> = {},
+) {
+  if (!selected.value.length) return
+  const res = await documentsApi.batch({
+    action,
+    ids: selected.value.map((d) => d.id),
+    ...extra,
+  })
+  if (res.failed.length) {
+    ElMessage.warning(
+      `成功 ${res.ok_count} 篇，失败 ${res.failed.length} 篇：${res.failed[0].error}`,
+    )
+  } else {
+    ElMessage.success(`已处理 ${res.ok_count} 篇`)
+  }
+  batchCategory.value = null
+  await reload()
+  clearSelection()
+}
+
+const batch = runBatch
+
+function onBatchMove(v: string | null) {
+  if (v) runBatch('move', { category_id: v })
+}
+
+async function batchRemove() {
+  try {
+    await ElMessageBox.confirm(
+      `选中的 ${selected.value.length} 篇将被移入回收站（原文件与索引保留，可随时恢复）。是否继续？`,
+      '批量移入回收站',
+      { type: 'warning', confirmButtonText: '移入回收站', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  await runBatch('delete')
+}
+
+async function batchTag() {
+  // 改为「追加」语义：后端会保留原标签再并入新标签，
+  // 避免批量操作不可逆地抹掉已有标签
+  let res: { value: string }
+  try {
+    res = await ElMessageBox.prompt('输入要追加的标签（逗号或空格分隔）', '批量打标签', {
+      inputPlaceholder: '如：Vue3, 性能优化',
+    })
+  } catch {
+    return
+  }
+  const names = (res.value || '')
+    .split(/[,，\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (!names.length) return
+  await runBatch('tag', { tags: names })
+}
+
 /** 支持从「分类管理 / 标签管理」带筛选条件跳转过来。 */
-function applyRouteFilters() {
-  if (route.query.category) filters.category_id = String(route.query.category)
+function applyRouteFilters() {  if (route.query.category) filters.category_id = String(route.query.category)
   if (route.query.tag) filters.tag = String(route.query.tag)
+  // 视图筛选（工作台「我的笔记 / 收藏」等统计卡跳转时携带）
+  if (route.query.view) filters.view = String(route.query.view) as typeof filters.view
 }
 
 onMounted(async () => {
@@ -203,6 +409,24 @@ watch(
 </script>
 
 <style scoped>
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--kh-border-light);
+  background: var(--kh-bg);
+  border-radius: 8px;
+}
+
+.batch-count {
+  font-size: 12.5px;
+  color: var(--kh-text-sub);
+  margin-right: 4px;
+}
+
 .toolbar {
   display: flex;
   gap: 10px;
@@ -211,5 +435,22 @@ watch(
 }
 .mt {
   margin-top: 16px;
+}
+.mark-icon {
+  font-size: 15px;
+  color: var(--kh-text-mute);
+  cursor: pointer;
+  margin: 0 3px;
+  transition: color 0.15s ease;
+}
+.mark-icon:hover {
+  color: var(--kh-primary);
+}
+.mark-icon.is-on {
+  color: #e6a23c;
+}
+.title-tag {
+  margin-left: 6px;
+  transform: scale(0.88);
 }
 </style>

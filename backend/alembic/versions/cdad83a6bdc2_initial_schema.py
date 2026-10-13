@@ -10,6 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 import pgvector.sqlalchemy  # noqa: F401  (VECTOR 类型)
 
+from app.core.config import settings
+
 
 revision: str = 'cdad83a6bdc2'
 down_revision: Union[str, None] = None
@@ -85,7 +87,10 @@ def upgrade() -> None:
     sa.Column('content', sa.Text(), nullable=False),
     sa.Column('page_no', sa.Integer(), nullable=True),
     sa.Column('token_count', sa.Integer(), nullable=False),
-    sa.Column('embedding', pgvector.sqlalchemy.vector.VECTOR(dim=1024), nullable=True),
+    # 维度必须与模型（Chunk.embedding = Vector(settings.embedding_dim)）一致：
+    # 这里此前硬编码 1024，一旦 EMBEDDING_DIM 改成别的值，全新安装建出的列
+    # 会与模型不匹配。改为直接读取配置，保证首次迁移与运行期配置同源。
+    sa.Column('embedding', pgvector.sqlalchemy.vector.VECTOR(dim=settings.embedding_dim), nullable=True),
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),

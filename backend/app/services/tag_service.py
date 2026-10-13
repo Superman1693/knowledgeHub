@@ -70,9 +70,16 @@ def _is_noise(token: str) -> bool:
 
 
 def list_tags(db: Session) -> list[tuple[Tag, int]]:
+    """列出标签及其文档数。
+
+    计数**排除回收站文档**，与 `category_service._doc_counts` 口径一致；
+    否则删除的文档仍让标签计数虚高（标签管理页与文档列表对不上）。
+    使用 `outerjoin(...and_(...))` 把过滤写进 JOIN 的 ON 子句，
+    这样没有任何存活文档的标签仍会以计数 0 出现在列表里。
+    """
     rows = db.execute(
         select(Tag, func.count(Document.id))
-        .outerjoin(Tag.documents)
+        .outerjoin(Tag.documents.and_(Document.deleted_at.is_(None)))
         .group_by(Tag.id)
         .order_by(Tag.name)
     ).all()
@@ -120,12 +127,47 @@ def delete_tag(db: Session, tag_id: uuid.UUID) -> None:
     db.commit()
 
 
+def merge_tags(db: Session, source_id: uuid.UUID, target_id: uuid.UUID) -> dict:
+    """把「来源标签」合并进「目标标签」，随后删除来源标签。
+
+    用于收拾 `vue` / `Vue` / `vuejs` 这类同一概念的重复标签。
+    此前只有「相似检测」，检测出来却没有合并入口，用户只能一篇篇手工改。
+
+    关键处理：某篇文档**同时**挂了两个标签时，直接改挂会撞
+    `document_tags` 的 `(document_id, tag_id)` 主键 → 必须先解除来源关联，
+    再决定是否新挂目标标签。
+    """
+    if source_id == target_id:
+        raise ValidationError("不能把标签合并到它自己")
+    source = get_tag(db, source_id)
+    target = get_tag(db, target_id)
+
+    source_name = source.name
+    target_doc_ids = {d.id for d in target.documents}
+    moved = 0
+    for doc in list(source.documents):
+        doc.tags.remove(source)
+        if doc.id not in target_doc_ids:
+            doc.tags.append(target)
+            moved += 1
+
+    db.delete(source)
+    db.commit()
+    return {
+        "merged": source_name,
+        "target_id": str(target_id),
+        "target_name": target.name,
+        "moved": moved,
+    }
+
+
 def set_document_tags(db: Session, document_id: uuid.UUID, names: list[str]) -> list[Tag]:
     """设置文档标签（覆盖式）：不存在的标签自动创建。"""
     doc = db.get(Document, document_id)
     if not doc:
         raise NotFoundError("文档不存在")
     tags: list[Tag] = []
+    seen: set[uuid.UUID] = set()
     for raw in names:
         name = raw.strip()
         if not name:
@@ -135,6 +177,11 @@ def set_document_tags(db: Session, document_id: uuid.UUID, names: list[str]) -> 
             tag = Tag(name=name)
             db.add(tag)
             db.flush()
+        # 去重：document_tags 主键为 (document_id, tag_id)，
+        # 重复名（如前端重复选择、AI 推荐结果重复）会触发 UniqueViolation → 500
+        if tag.id in seen:
+            continue
+        seen.add(tag.id)
         tags.append(tag)
     doc.tags = tags
     db.commit()

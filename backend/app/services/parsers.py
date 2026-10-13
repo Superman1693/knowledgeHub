@@ -8,7 +8,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.core.exceptions import ParseError
+from app.core.logging import get_logger
+from app.services import ocr_service
 from app.storage import files
+
+logger = get_logger(__name__)
 
 # 纯文本类扩展名：直接按文本读取
 TEXT_EXTENSIONS = {
@@ -57,10 +61,76 @@ def _parse_pdf(path: Path) -> ParsedDocument:
             pages.append(page.extract_text() or "")
         except Exception:  # noqa: BLE001 - 单页失败不影响整体
             pages.append("")
+
+    # 扫描件回退：整篇无文本时尝试 OCR（仅对确实为空的页面做，避免浪费）
+    ocr_pages = 0
+    if not any(p.strip() for p in pages):
+        ocr_pages = _ocr_pdf_pages(path, pages)
+
     text = "\n\n".join(pages).strip()
     if not text:
-        raise ParseError("PDF 未提取到文本内容（可能是扫描件，需 OCR）")
+        status = ocr_service.ocr_status()
+        hint = status["hint"] or "未提取到文本"
+        raise ParseError(f"PDF 未提取到文本内容（{hint}）")
     return ParsedDocument(text=text, pages=pages)
+
+
+def _parse_image(path: Path) -> ParsedDocument:
+    """图片解析：走 OCR 把截图里的文字提取成正文。
+
+    此前 OCR **只作用于 PDF 页面**，截图（PNG/JPG）连作为文档导入都不允许 ——
+    而「把报错截图里的文字整进知识库」正是技术笔记最高频的场景。
+    这里复用 `ocr_service.ocr_image_bytes()`（PDF 页面识别用的就是它）。
+    """
+    status = ocr_service.ocr_status()
+    if not status["available"]:
+        raise ParseError(
+            f"图片需要 OCR 才能提取文字，但当前 OCR 不可用（{status['hint']}）"
+        )
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise ParseError(f"读取图片失败：{exc}") from exc
+    try:
+        text = ocr_service.ocr_image_bytes(data)
+    except Exception as exc:  # noqa: BLE001
+        raise ParseError(f"图片 OCR 失败：{exc}") from exc
+
+    text = (text or "").strip()
+    if not text:
+        raise ParseError("图片未识别到文字（可能是纯图形截图，没有可提取的文本）")
+    return ParsedDocument(text=text)
+
+
+def _ocr_pdf_pages(path: Path, pages: list[str]) -> int:
+    """对无文本层的 PDF 页面做 OCR，原地写回 pages，返回成功识别的页数。
+
+    只对确实为空的页面调用 OCR；引擎不可用时返回 0，保持原有行为。
+    """
+    status = ocr_service.ocr_status()
+    if not status["available"] or not status["renderer_installed"]:
+        logger.warning("PDF 疑似扫描件，但 OCR 不可用：%s", status["hint"])
+        return 0
+
+    rendered = ocr_service.render_pdf_pages(str(path))
+    if not rendered:
+        return 0
+
+    done = 0
+    for page_no, png in rendered:
+        idx = page_no - 1
+        if idx < len(pages) and not pages[idx].strip():
+            try:
+                recognized = ocr_service.ocr_image_bytes(png)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("第 %d 页 OCR 失败：%s", page_no, exc)
+                continue
+            if recognized:
+                pages[idx] = recognized
+                done += 1
+    if done:
+        logger.info("OCR 成功识别 %d/%d 页", done, len(rendered))
+    return done
 
 
 def _parse_docx(path: Path) -> ParsedDocument:
@@ -109,6 +179,11 @@ def parse(path: Path, ext: str) -> ParsedDocument:
         return _parse_pdf(path)
     if ext == "docx":
         return _parse_docx(path)
+    if ext == "svg":
+        # SVG 是 XML 文本，直接按文本读，不必 OCR
+        return _parse_text(path)
+    if ext in files.OCR_IMAGE_EXTENSIONS:
+        return _parse_image(path)
     if ext in TEXT_EXTENSIONS:
         return _parse_text(path)
     raise ParseError(f"暂不支持解析的格式：.{ext}")

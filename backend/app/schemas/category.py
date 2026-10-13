@@ -11,11 +11,16 @@ from pydantic import BaseModel, ConfigDict, Field
 class CategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
+    # 多级文件夹：为空表示根分类
+    parent_id: uuid.UUID | None = None
 
 
 class CategoryUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
+    parent_id: uuid.UUID | None = None
+    # 显式把分类移动到根（因为 parent_id=None 与「不修改」无法区分）
+    move_to_root: bool = False
 
 
 class CategoryOut(BaseModel):
@@ -24,9 +29,20 @@ class CategoryOut(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None = None
+    parent_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
     document_count: int = 0
+
+
+class CategoryTreeNode(CategoryOut):
+    """树节点：含子节点与「含子孙」的总文档数。"""
+
+    children: list["CategoryTreeNode"] = []
+    total_count: int = 0
+
+
+CategoryTreeNode.model_rebuild()
 
 
 # ---------- 标签 ----------

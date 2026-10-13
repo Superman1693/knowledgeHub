@@ -296,8 +296,13 @@ async function doTimeline() {
 }
 
 onMounted(async () => {
-  const list = await documentsApi.list({ page: 1, page_size: 100 })
-  documents.value = list.items
+  // 文档列表拉取失败不应让整个页面挂死（错误提示由请求层统一弹出）
+  try {
+    const list = await documentsApi.list({ page: 1, page_size: 100 })
+    documents.value = list.items
+  } catch {
+    documents.value = []
+  }
 })
 </script>
 

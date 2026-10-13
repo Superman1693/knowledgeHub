@@ -4,8 +4,12 @@ from app.models.category import Category
 from app.models.chunk import Chunk
 from app.models.conversation import Conversation, Message
 from app.models.document import Document
+from app.models.flashcard import Flashcard, ReviewLog
 from app.models.glossary import GlossaryTerm
 from app.models.learning import QuizRecord
+from app.models.link import NoteLink
+from app.models.revision import NoteRevision
+from app.models.saved_search import SavedSearch
 from app.models.setting import AppSetting
 from app.models.tag import Tag, document_tags
 
@@ -16,8 +20,13 @@ __all__ = [
     "Conversation",
     "Message",
     "Document",
+    "Flashcard",
     "GlossaryTerm",
+    "NoteLink",
+    "NoteRevision",
     "QuizRecord",
+    "ReviewLog",
+    "SavedSearch",
     "AppSetting",
     "Tag",
     "document_tags",

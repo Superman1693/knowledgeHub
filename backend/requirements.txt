@@ -20,3 +20,19 @@ httpx>=0.27.0
 # 文档解析
 pypdf>=4.2.0
 python-docx>=1.1.0
+
+# 中文分词（可选但推荐）：安装后查询分词用 jieba 精确分词，
+# 未安装时自动回退到 2-gram，不影响功能
+jieba>=0.42.1
+
+# 拼音检索（可选）：让「只打得出来拼音」的查询（xiangying / xjbsj）也能命中中文。
+# 未安装时拼音检索整体关闭，其余检索行为完全不变。
+pypinyin>=0.50.0
+
+# OCR（可选）：识别扫描型 PDF / 图片中的文字。
+# RapidOCR 基于 ONNX Runtime，内置中文模型，纯 pip 安装，无需 Tesseract 系统引擎。
+# 未安装时扫描件保持原有行为（提示需 OCR），不影响普通 PDF。
+rapidocr_onnxruntime>=1.2.3
+pymupdf>=1.24.0          # 渲染 PDF 页面为图片（供 OCR 使用）
+pytesseract>=0.3.10      # 兜底引擎，需系统安装 Tesseract；无 RapidOCR 时尝试
+Pillow>=10.0.0           # 图片处理

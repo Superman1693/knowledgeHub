@@ -7,10 +7,21 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.schemas.category import CategoryCreate, CategoryOut, CategoryUpdate
+from app.schemas.category import (
+    CategoryCreate,
+    CategoryOut,
+    CategoryTreeNode,
+    CategoryUpdate,
+)
 from app.services import category_service
 
 router = APIRouter(prefix="/api/categories", tags=["categories"])
+
+
+@router.get("/tree", response_model=list[CategoryTreeNode])
+def category_tree(db: Session = Depends(get_db)) -> list[CategoryTreeNode]:
+    """分类树（含自身文档数与「含子孙」的总数）。"""
+    return [CategoryTreeNode.model_validate(node) for node in category_service.tree(db)]
 
 
 @router.get("", response_model=list[CategoryOut])
@@ -20,6 +31,7 @@ def list_categories(db: Session = Depends(get_db)) -> list[CategoryOut]:
             id=cat.id,
             name=cat.name,
             description=cat.description,
+            parent_id=cat.parent_id,
             created_at=cat.created_at,
             updated_at=cat.updated_at,
             document_count=count,

@@ -229,7 +229,11 @@ async function save() {
 }
 
 async function remove(row: GlossaryTerm) {
-  await ElMessageBox.confirm(`删除术语「${row.term}」？`, '删除确认', { type: 'warning' })
+  try {
+    await ElMessageBox.confirm(`删除术语「${row.term}」？`, '删除确认', { type: 'warning' })
+  } catch {
+    return // 用户取消
+  }
   await glossaryApi.remove(row.id)
   ElMessage.success('已删除')
   await load()

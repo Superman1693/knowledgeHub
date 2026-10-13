@@ -27,6 +27,30 @@ const router = createRouter({
           meta: { title: '文档详情', hidden: true },
         },
         {
+          path: 'notes/new',
+          name: 'note-new',
+          component: () => import('@/views/NoteEditView.vue'),
+          meta: { title: '新建笔记', hidden: true },
+        },
+        {
+          path: 'notes/:id/edit',
+          name: 'note-edit',
+          component: () => import('@/views/NoteEditView.vue'),
+          meta: { title: '编辑笔记', hidden: true },
+        },
+        {
+          path: 'trash',
+          name: 'trash',
+          component: () => import('@/views/TrashView.vue'),
+          meta: { title: '回收站', icon: 'Delete' },
+        },
+        {
+          path: 'attachments',
+          name: 'attachments',
+          component: () => import('@/views/AttachmentsView.vue'),
+          meta: { title: '附件管理', icon: 'Picture' },
+        },
+        {
           path: 'upload',
           name: 'upload',
           component: () => import('@/views/UploadView.vue'),
@@ -55,6 +79,12 @@ const router = createRouter({
           name: 'search',
           component: () => import('@/views/SearchView.vue'),
           meta: { title: '知识检索', icon: 'Search' },
+        },
+        {
+          path: 'graph',
+          name: 'graph',
+          component: () => import('@/views/GraphView.vue'),
+          meta: { title: '知识图谱', icon: 'Share' },
         },
         {
           path: 'chat',

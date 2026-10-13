@@ -2,6 +2,29 @@
   <div class="page" v-loading="loading">
     <div class="head">
       <el-button link @click="$router.back()"><el-icon><ArrowLeft /></el-icon> 返回</el-button>
+      <span class="head-spacer" />
+      <template v-if="doc">
+        <el-button
+          v-if="isEditable"
+          type="primary"
+          size="small"
+          @click="$router.push(`/notes/${doc.id}/edit`)"
+        >
+          <el-icon><EditPen /></el-icon>
+          <span>编辑正文</span>
+        </el-button>
+        <el-button size="small" @click="toggleFavorite">
+          <el-icon :class="{ 'is-on': doc.is_favorite }">
+            <StarFilled v-if="doc.is_favorite" />
+            <Star v-else />
+          </el-icon>
+          <span>{{ doc.is_favorite ? '已收藏' : '收藏' }}</span>
+        </el-button>
+        <el-button size="small" @click="togglePinned">
+          <el-icon :class="{ 'is-on': doc.is_pinned }"><Top /></el-icon>
+          <span>{{ doc.is_pinned ? '已置顶' : '置顶' }}</span>
+        </el-button>
+      </template>
     </div>
 
     <div v-if="doc" class="card">
@@ -55,7 +78,17 @@
         <el-button @click="reindex">重建索引</el-button>
         <el-button @click="doExport">导出 Markdown</el-button>
         <el-button tag="a" :href="originalUrl" target="_blank">打开原始文件</el-button>
-        <el-button type="danger" @click="remove">删除文档</el-button>
+        <el-tooltip
+          content="关闭后该笔记不进入 AI 检索范围（在检索阶段即被排除）"
+          placement="top"
+        >
+          <span class="ai-toggle">
+            <el-icon><MagicStick /></el-icon>
+            <span>允许 AI 读取</span>
+            <el-switch v-model="aiEnabled" size="small" @change="toggleAi" />
+          </span>
+        </el-tooltip>
+        <el-button type="danger" @click="remove">移入回收站</el-button>
       </div>
     </div>
 
@@ -63,6 +96,54 @@
       <div class="section-title">内容预览</div>
       <MarkdownView v-if="isMarkdownLike" :content="doc.content_text || '（无正文）'" />
       <pre v-else class="plain mono">{{ doc.content_text || '（无正文）' }}</pre>
+    </div>
+
+    <div v-if="doc" class="card mt">
+      <div class="section-title">
+        关联笔记
+        <span class="muted">
+          （反向链接 {{ linkSummary.backlink_count }} · 出链 {{ linkSummary.outgoing_count }}）
+        </span>
+      </div>
+
+      <div class="link-block">
+        <div class="link-block-title">反向链接（谁引用了本笔记）</div>
+        <div v-if="!linkSummary.backlinks.length" class="muted-sm">
+          还没有其它笔记引用本笔记。在其它笔记里写
+          <code>[[{{ doc.title }}]]</code> 即可建立关联。
+        </div>
+        <button
+          v-for="b in linkSummary.backlinks"
+          :key="b.link_id"
+          class="link-item"
+          type="button"
+          @click="$router.push(`/documents/${b.source_document_id}`)"
+        >
+          <el-icon><Document /></el-icon>
+          <span class="link-text">{{ b.source_document_title }}</span>
+        </button>
+      </div>
+
+      <div class="link-block">
+        <div class="link-block-title">出链（本笔记引用了谁）</div>
+        <div v-if="!linkSummary.outgoing.length" class="muted-sm">
+          正文里写 <code>[[笔记标题]]</code> 即可建立双链。
+        </div>
+        <button
+          v-for="o in linkSummary.outgoing"
+          :key="o.link_id"
+          class="link-item"
+          :class="{ 'is-unresolved': !o.resolved }"
+          type="button"
+          @click="
+            o.resolved && o.target_document_id && $router.push(`/documents/${o.target_document_id}`)
+          "
+        >
+          <el-icon><Document /></el-icon>
+          <span class="link-text">{{ o.target_title }}</span>
+          <span v-if="!o.resolved" class="link-tag">未创建</span>
+        </button>
+      </div>
     </div>
 
     <div v-if="doc" class="card mt">
@@ -98,11 +179,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { categoriesApi, documentsApi, tagsApi } from '@/api'
-import type { Category, ChunkOut, DocumentDetail, Tag } from '@/api/types'
+import type { Category, ChunkOut, DocumentDetail, LinkSummary, Tag } from '@/api/types'
 import MarkdownView from '@/components/MarkdownView.vue'
 import { docStatusText as statusText, docStatusType as statusType } from '@/utils/status'
 
@@ -115,9 +196,24 @@ const doc = ref<DocumentDetail | null>(null)
 const categories = ref<Category[]>([])
 const tags = ref<Tag[]>([])
 const chunks = ref<ChunkOut[]>([])
+/** 双向链接：出链 + 反向链接。 */
+const linkSummary = ref<LinkSummary>({
+  outgoing: [],
+  backlinks: [],
+  unresolved: [],
+  outgoing_count: 0,
+  backlink_count: 0,
+  unresolved_count: 0,
+})
 // 引用定位目标片段（来自 ?chunk=<id>）
 const targetChunkId = ref<string | null>(null)
 let highlightTimer: number | null = null
+
+onBeforeUnmount(() => {
+  // 高亮定时器必须随组件一起清理，否则会在卸载后改动已销毁的状态
+  if (highlightTimer !== null) window.clearTimeout(highlightTimer)
+  highlightTimer = null
+})
 
 const form = reactive({
   title: '',
@@ -126,6 +222,48 @@ const form = reactive({
 })
 
 const originalUrl = computed(() => documentsApi.originalUrl(id))
+
+/** 可在应用内编辑的纯文本格式（二进制格式不回写磁盘，故不提供编辑入口）。 */
+const TEXT_TYPES = new Set([
+  'md', 'markdown', 'txt', 'py', 'js', 'ts', 'jsx', 'tsx', 'html', 'htm', 'css',
+  'json', 'yaml', 'yml', 'ini', 'toml', 'conf', 'cfg', 'env', 'java', 'go', 'rs',
+  'c', 'cpp', 'h', 'hpp', 'cs', 'php', 'rb', 'sql', 'sh', 'bat', 'xml', 'csv', 'log',
+])
+const isEditable = computed(() =>
+  TEXT_TYPES.has((doc.value?.file_type ?? '').toLowerCase()),
+)
+
+/** 是否允许该笔记进入 AI 检索范围。 */
+const aiEnabled = ref(true)
+
+async function toggleFavorite() {
+  if (!doc.value) return
+  const next = !doc.value.is_favorite
+  const updated = await documentsApi.setFavorite(id, next)
+  doc.value.is_favorite = updated.is_favorite
+  ElMessage.success(next ? '已加入收藏' : '已取消收藏')
+}
+
+async function togglePinned() {
+  if (!doc.value) return
+  const next = !doc.value.is_pinned
+  const updated = await documentsApi.setPinned(id, next)
+  doc.value.is_pinned = updated.is_pinned
+  ElMessage.success(next ? '已置顶' : '已取消置顶')
+}
+
+async function toggleAi(value: string | number | boolean) {
+  const enabled = Boolean(value)
+  try {
+    const updated = await documentsApi.update(id, { ai_enabled: enabled })
+    doc.value = { ...(doc.value as DocumentDetail), ai_enabled: updated.ai_enabled }
+    ElMessage.success(
+      enabled ? '已允许 AI 读取该笔记' : '已设为私密：AI 检索阶段将排除该笔记',
+    )
+  } catch {
+    aiEnabled.value = !enabled
+  }
+}
 const isMarkdownLike = computed(() =>
   ['md', 'markdown', 'txt'].includes(doc.value?.file_type ?? ''),
 )
@@ -138,11 +276,24 @@ async function load() {
     doc.value = await documentsApi.get(id)
     form.title = doc.value.title
     form.category_id = doc.value.category_id ?? null
+    aiEnabled.value = doc.value.ai_enabled !== false
     const t = await tagsApi.list()
     tags.value = t
     chunks.value = await documentsApi.chunks(id)
+    // 记录一次访问，供「最近访问」列表使用（失败不影响页面）
+    documentsApi.touchViewed(id).catch(() => {})
+    // 双向链接（失败不影响页面）
+    loadLinks()
   } finally {
     loading.value = false
+  }
+}
+
+async function loadLinks() {
+  try {
+    linkSummary.value = await documentsApi.links(id)
+  } catch {
+    /* 忽略 */
   }
 }
 
@@ -163,6 +314,32 @@ async function locateChunk() {
     if (targetChunkId.value === target) targetChunkId.value = null
     highlightTimer = null
   }, 3000)
+}
+
+/** 块级引用定位：URL 带 ?h=<锚点> 时滚动到包含该小节的片段并高亮。
+ *
+ * 从 `[[标题#小节]]` 点进来会带这个参数。
+ *
+ * 注意详情页把正文按**片段**展示（不是渲染后的 Markdown），并没有 h1~h6 元素，
+ * 所以这里是按「片段文本里出现该小节名」来定位，取第一个匹配的片段。
+ * 匹配前去掉 markdown 井号头与空白：链接里写 `#安装步骤`，
+ * 正文里实际是 `## 安装步骤`，两者应视为同一个目标。
+ */
+async function locateHeading() {
+  const anchor = (route.query.h as string | undefined) ?? null
+  if (!anchor) return
+  await nextTick()
+  const wanted = anchor.trim().toLowerCase().replace(/^#+\s*/, '').replace(/\s+/g, '')
+  if (!wanted) return
+  const items = Array.from(document.querySelectorAll<HTMLElement>('.chunk-item'))
+  const hit = items.find((el) => {
+    const text = (el.textContent || '').toLowerCase().replace(/\s+/g, '')
+    return text.includes(wanted)
+  })
+  if (!hit) return
+  hit.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  hit.classList.add('is-anchor-target')
+  window.setTimeout(() => hit.classList.remove('is-anchor-target'), 2600)
 }
 
 async function save() {
@@ -224,11 +401,13 @@ async function doExport() {
 }
 
 async function remove() {
-  await ElMessageBox.confirm('确定删除该文档？将同时删除原始文件与索引。', '删除确认', {
-    type: 'warning',
-  })
+  await ElMessageBox.confirm(
+    '该文档将移入回收站（原文件与索引保留，可随时恢复）。是否继续？',
+    '移入回收站',
+    { type: 'warning', confirmButtonText: '移入回收站', cancelButtonText: '取消' },
+  )
   await documentsApi.remove(id)
-  ElMessage.success('已删除')
+  ElMessage.success('已移入回收站')
   router.push('/documents')
 }
 
@@ -236,6 +415,7 @@ onMounted(async () => {
   categories.value = await categoriesApi.list()
   await load()
   await locateChunk()
+  await locateHeading()
 })
 
 // 从问答页/检索页跳转到同一文档的其它片段时组件会被复用，需响应 query 变化
@@ -243,11 +423,102 @@ watch(
   () => route.query.chunk,
   () => locateChunk(),
 )
+
+// 同理：`[[标题#小节]]` 点进来后继续点另一条块级引用，要重新定位
+watch(
+  () => route.query.h,
+  () => locateHeading(),
+)
 </script>
 
 <style scoped>
 .head {
   margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.head-spacer {
+  flex: 1;
+}
+.ai-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--kh-text-sub);
+  padding: 0 4px;
+}
+.is-on {
+  color: #e6a23c;
+}
+
+/* ---- 关联笔记（双向链接） ---- */
+.link-block {
+  margin-bottom: 14px;
+}
+
+.link-block-title {
+  font-size: 12.5px;
+  color: var(--kh-text-sub);
+  margin-bottom: 7px;
+}
+
+.muted-sm {
+  font-size: 12.5px;
+  color: var(--kh-text-mute);
+  line-height: 1.7;
+}
+
+.muted-sm code {
+  background: var(--kh-bg-deep);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12px;
+}
+
+.link-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid var(--kh-border-light);
+  background: var(--kh-panel);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--kh-text);
+  text-align: left;
+}
+
+.link-item:hover {
+  border-color: var(--kh-primary-border);
+  background: var(--kh-primary-soft);
+}
+
+.link-item.is-unresolved {
+  border-style: dashed;
+  color: var(--kh-text-sub);
+  cursor: default;
+}
+
+.link-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-tag {
+  font-size: 10.5px;
+  color: var(--kh-text-mute);
+  border: 1px solid var(--kh-border);
+  border-radius: 4px;
+  padding: 0 4px;
 }
 .title-row {
   display: flex;
@@ -300,6 +571,13 @@ watch(
 
 /* 引用定位目标：短暂高亮，帮助用户快速找到对应片段 */
 .chunk-item.is-target {
+  border-color: var(--kh-primary);
+  background: var(--kh-primary-soft);
+  box-shadow: 0 0 0 3px var(--kh-primary-soft);
+}
+
+/* 块级引用定位（?h=<锚点>）：与上面的 is-target 同款高亮，类名不同以免互相覆盖 */
+.chunk-item.is-anchor-target {
   border-color: var(--kh-primary);
   background: var(--kh-primary-soft);
   box-shadow: 0 0 0 3px var(--kh-primary-soft);

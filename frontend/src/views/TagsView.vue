@@ -49,12 +49,13 @@
         <el-table-column prop="created_at" label="创建时间" width="180">
           <template #default="{ row }">{{ fmt(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="240" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDocuments({ tag: row.name })">
               查看文档
             </el-button>
             <el-button link type="primary" size="small" @click="rename(row)">重命名</el-button>
+            <el-button link type="warning" size="small" @click="openMerge(row)">合并</el-button>
             <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -70,11 +71,38 @@
         </template>
       </el-table>
     </div>
+
+    <!-- 合并标签：把重复/近义标签收敛成一个 -->
+    <el-dialog v-model="mergeOpen" title="合并标签" width="460px">
+      <p class="merge-desc">
+        把「<b>{{ mergeSource?.name }}</b>」合并到另一个标签：它的文档会改挂到目标标签，
+        然后本标签被删除。用于收拾「vue / Vue / vuejs」这类重复标签。
+      </p>
+      <el-select
+        v-model="mergeTarget"
+        placeholder="选择要合并到的目标标签"
+        filterable
+        style="width: 100%"
+      >
+        <el-option
+          v-for="t in mergeCandidates"
+          :key="t.id"
+          :label="`${t.name}（${t.document_count} 篇）`"
+          :value="t.id"
+        />
+      </el-select>
+      <template #footer>
+        <el-button @click="mergeOpen = false">取消</el-button>
+        <el-button type="primary" :loading="merging" :disabled="!mergeTarget" @click="doMerge">
+          确认合并
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { tagsApi } from '@/api'
@@ -116,19 +144,29 @@ async function create() {
 }
 
 async function rename(row: Tag) {
-  const { value } = await ElMessageBox.prompt('输入新的标签名称', '重命名', {
-    inputValue: row.name,
-  })
-  if (!value) return
-  await tagsApi.update(row.id, value)
+  // 取消对话框时 ElMessageBox 会 reject；不捕获会产生 unhandled promise rejection
+  let res: { value: string }
+  try {
+    res = await ElMessageBox.prompt('输入新的标签名称', '重命名', {
+      inputValue: row.name,
+    })
+  } catch {
+    return
+  }
+  if (!res.value) return
+  await tagsApi.update(row.id, res.value)
   ElMessage.success('已更新')
   load()
 }
 
 async function remove(row: Tag) {
-  await ElMessageBox.confirm(`删除标签「${row.name}」？文档本身不受影响。`, '删除确认', {
-    type: 'warning',
-  })
+  try {
+    await ElMessageBox.confirm(`删除标签「${row.name}」？文档本身不受影响。`, '删除确认', {
+      type: 'warning',
+    })
+  } catch {
+    return // 用户取消
+  }
   await tagsApi.remove(row.id)
   ElMessage.success('已删除')
   load()
@@ -141,6 +179,53 @@ async function checkSimilar() {
     .then((r) => r.data)
   similar.value = res.similar
   if (!res.similar.length) ElMessage.info('未发现相似标签')
+}
+
+// ---------------- 合并标签 ----------------
+const mergeOpen = ref(false)
+const merging = ref(false)
+const mergeSource = ref<Tag | null>(null)
+const mergeTarget = ref<string | null>(null)
+
+/** 可合并的目标：排除自己（后端也会再校验一次）。 */
+const mergeCandidates = computed(() =>
+  items.value.filter((t) => t.id !== mergeSource.value?.id),
+)
+
+function openMerge(row: Tag) {
+  mergeSource.value = row
+  // 若相似检测结果里恰好有同名标签，预选第一个作为目标，省一次点击
+  const guess = mergeCandidates.value.find((t) => similar.value.includes(t.name))
+  mergeTarget.value = guess?.id ?? null
+  mergeOpen.value = true
+}
+
+async function doMerge() {
+  const source = mergeSource.value
+  const target = mergeTarget.value
+  if (!source || !target) return
+  const targetName = items.value.find((t) => t.id === target)?.name ?? ''
+  try {
+    await ElMessageBox.confirm(
+      `「${source.name}」的文档将全部改挂到「${targetName}」，随后「${source.name}」会被删除。是否继续？`,
+      '合并确认',
+      { type: 'warning' },
+    )
+  } catch {
+    return // 用户取消
+  }
+  merging.value = true
+  try {
+    const res = await tagsApi.merge(source.id, target)
+    ElMessage.success(
+      `已把「${res.merged}」合并到「${res.target_name}」（迁移 ${res.moved} 篇）`,
+    )
+    mergeOpen.value = false
+    similar.value = []
+    await load()
+  } finally {
+    merging.value = false
+  }
 }
 
 onMounted(load)
@@ -163,5 +248,11 @@ onMounted(load)
 }
 .muted {
   color: var(--kh-text-mute);
+}
+.merge-desc {
+  font-size: 12.5px;
+  color: var(--kh-text-sub);
+  line-height: 1.7;
+  margin: 0 0 12px;
 }
 </style>

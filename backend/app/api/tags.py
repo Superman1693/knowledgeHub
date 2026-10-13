@@ -7,7 +7,7 @@ from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.exceptions import AIUnavailableError
+from app.core.exceptions import AIUnavailableError, AppError, ValidationError
 from app.schemas.category import TagCreate, TagOut, TagSuggestRequest, TagUpdate
 from app.services import tag_service
 
@@ -51,6 +51,8 @@ async def suggest_tags(payload: TagSuggestRequest, db: Session = Depends(get_db)
             tags = await tag_service.suggest_tags_ai(
                 db, payload.document_id, payload.text, payload.limit
             )
+        except AppError:
+            raise  # 业务异常（404 / 422 / 503 等）原样透出，不要统一成 503
         except Exception as exc:  # noqa: BLE001
             raise AIUnavailableError(f"AI 标签推荐失败：{exc}") from exc
         return {"suggestions": tags, "note": "由 AI 根据文档主题生成，仅供参考"}
@@ -61,6 +63,26 @@ async def suggest_tags(payload: TagSuggestRequest, db: Session = Depends(get_db)
 @router.get("/similar")
 def similar_tags(name: str = Query(...), db: Session = Depends(get_db)) -> dict:
     return {"similar": tag_service.find_similar_tags(db, name)}
+
+
+@router.post("/{tag_id}/merge")
+def merge_tag(
+    tag_id: uuid.UUID,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    """把该标签合并到另一个标签：文档改挂目标标签，随后删除本标签。
+
+    用于收拾重复/近义标签（此前只有「相似检测」，没有合并入口）。
+    """
+    target = payload.get("target_id")
+    if not target:
+        raise ValidationError("缺少 target_id")
+    try:
+        target_id = uuid.UUID(str(target))
+    except (ValueError, TypeError) as exc:
+        raise ValidationError(f"target_id 不是合法的 UUID：{target}") from exc
+    return tag_service.merge_tags(db, tag_id, target_id)
 
 
 @router.post("/document/{document_id}")

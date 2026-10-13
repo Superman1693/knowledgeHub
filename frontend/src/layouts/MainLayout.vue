@@ -1,13 +1,22 @@
 <template>
   <div class="layout">
     <!-- ============ 侧边栏 ============ -->
-    <aside class="sidebar">
+    <aside class="sidebar" :class="{ 'is-open': drawerOpen }">
       <div class="brand">
         <div class="brand-mark">KH</div>
         <div class="brand-text">
           <div class="brand-name">KnowledgeHub</div>
           <div class="brand-sub">本地个人知识库</div>
         </div>
+        <!-- 窄屏关闭按钮：宽屏下隐藏 -->
+        <button
+          class="sidebar-close"
+          type="button"
+          aria-label="关闭导航菜单"
+          @click="drawerOpen = false"
+        >
+          <el-icon><Close /></el-icon>
+        </button>
       </div>
 
       <nav class="nav">
@@ -63,24 +72,118 @@
           </div>
         </el-popover>
 
-        <div class="version">v0.1.0 · 数据全部保存在本机</div>
+        <div class="version">
+          <span>v0.1.0 · 数据全部保存在本机</span>
+          <el-tooltip
+            :content="theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'"
+            placement="top"
+          >
+            <button class="theme-toggle" type="button" @click="toggleTheme">
+              <el-icon>
+                <Moon v-if="theme === 'light'" />
+                <Sunny v-else />
+              </el-icon>
+              <span>{{ theme === 'dark' ? '浅色' : '深色' }}</span>
+            </button>
+          </el-tooltip>
+        </div>
       </div>
     </aside>
 
     <!-- ============ 内容区 ============ -->
     <main class="content">
-      <router-view />
+      <!-- 窄屏菜单按钮：宽屏下隐藏（侧栏常驻）。放这里而不是侧栏里，
+           否则侧栏收起后就没有入口能再打开了。 -->
+      <button
+        class="menu-toggle"
+        type="button"
+        aria-label="打开导航菜单"
+        @click="drawerOpen = true"
+      >
+        <el-icon><Menu /></el-icon>
+      </button>
+
+      <!-- :key 用 fullPath：否则在 /documents/A → /documents/B 这类「同路由仅参数变化」
+           的跳转中组件会被复用，页面数据不会重新加载 -->
+      <router-view :key="route.fullPath" />
     </main>
+
+    <!-- 窄屏遮罩：点击空白处关闭侧栏 -->
+    <div
+      v-if="drawerOpen"
+      class="drawer-mask"
+      @click="drawerOpen = false"
+    />
+
+    <!-- 全局快捷搜索 / 跳转（Ctrl/Cmd + K） -->
+    <CommandPalette v-model="paletteOpen" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { systemApi, settingsApi } from '@/api'
 import type { HealthOut } from '@/api/types'
+import CommandPalette from '@/components/CommandPalette.vue'
 
 const route = useRoute()
+/** 快捷搜索面板开关（Ctrl/Cmd + K） */
+const paletteOpen = ref(false)
+/** 窄屏侧栏抽屉开关（宽屏下侧栏常驻，此状态无意义） */
+const drawerOpen = ref(false)
+
+// 窄屏点完导航要自动收起抽屉：否则侧栏盖住内容，用户以为页面没跳转
+watch(
+  () => route.fullPath,
+  () => {
+    drawerOpen.value = false
+  },
+)
+
+// ---------------- 明暗主题 ----------------
+type Theme = 'light' | 'dark'
+const THEME_KEY = 'kh-theme'
+const theme = ref<Theme>('light')
+
+function applyTheme(next: Theme) {
+  theme.value = next
+  // 深色时在 <html> 上打标记，styles.css 的 [data-theme='dark'] 生效
+  if (next === 'dark') document.documentElement.dataset.theme = 'dark'
+  else delete document.documentElement.dataset.theme
+  try {
+    localStorage.setItem(THEME_KEY, next)
+  } catch {
+    /* 隐私模式下可能不可用，忽略 */
+  }
+}
+
+function toggleTheme() {
+  applyTheme(theme.value === 'dark' ? 'light' : 'dark')
+}
+
+/** 首次进入：优先用本地偏好，其次跟随系统。 */
+function initTheme() {
+  let saved: string | null = null
+  try {
+    saved = localStorage.getItem(THEME_KEY)
+  } catch {
+    saved = null
+  }
+  if (saved === 'dark' || saved === 'light') {
+    applyTheme(saved)
+    return
+  }
+  const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches
+  applyTheme(prefersDark ? 'dark' : 'light')
+}
+
+function onGlobalKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    paletteOpen.value = true
+  }
+}
 
 interface MenuItem {
   path: string
@@ -99,6 +202,7 @@ const menuGroups: MenuGroup[] = [
     label: '知识库',
     items: [
       { path: '/workbench', title: '工作台', icon: 'HomeFilled' },
+      { path: '/notes/new', title: '新建笔记', icon: 'EditPen' },
       { path: '/documents', title: '文档管理', icon: 'Document' },
       { path: '/upload', title: '导入文档', icon: 'UploadFilled' },
     ],
@@ -109,6 +213,8 @@ const menuGroups: MenuGroup[] = [
       { path: '/categories', title: '分类', icon: 'FolderOpened' },
       { path: '/tags', title: '标签', icon: 'PriceTag' },
       { path: '/glossary', title: '术语词典', icon: 'Notebook' },
+      { path: '/attachments', title: '附件管理', icon: 'Picture' },
+      { path: '/trash', title: '回收站', icon: 'Delete' },
     ],
   },
   {
@@ -116,6 +222,7 @@ const menuGroups: MenuGroup[] = [
     items: [
       { path: '/chat', title: 'AI 问答', icon: 'ChatDotRound' },
       { path: '/search', title: '知识检索', icon: 'Search' },
+      { path: '/graph', title: '知识图谱', icon: 'Share' },
     ],
   },
   {
@@ -170,6 +277,8 @@ const statusText = computed(() => {
 })
 
 onMounted(async () => {
+  initTheme()
+  window.addEventListener('keydown', onGlobalKeydown)
   try {
     health.value = await systemApi.health()
   } catch {
@@ -181,6 +290,10 @@ onMounted(async () => {
   } catch {
     /* 忽略 */
   }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalKeydown)
 })
 </script>
 
@@ -376,6 +489,28 @@ onMounted(async () => {
   line-height: 1.5;
 }
 
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 7px;
+  padding: 3px 10px;
+  border: 1px solid var(--kh-border);
+  border-radius: 999px;
+  background: var(--kh-panel);
+  color: var(--kh-text-sub);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.theme-toggle:hover {
+  border-color: var(--kh-primary-border);
+  color: var(--kh-primary);
+  background: var(--kh-primary-soft);
+}
+
 /* ---------------- 状态面板 ---------------- */
 .status-panel-title {
   font-weight: 600;
@@ -433,5 +568,84 @@ onMounted(async () => {
   flex: 1;
   overflow: auto;
   min-width: 0;
+}
+
+/* ---------------- 窄屏菜单按钮（宽屏隐藏） ---------------- */
+.menu-toggle {
+  display: none;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0 0 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--kh-border);
+  border-radius: 8px;
+  background: var(--kh-panel);
+  color: var(--kh-text-sub);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.menu-toggle:hover {
+  color: var(--kh-primary);
+  border-color: var(--kh-primary-border);
+}
+
+.sidebar-close {
+  display: none;
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--kh-text-sub);
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+
+.drawer-mask {
+  display: none;
+}
+
+/* ---------------- 窄屏：侧栏变成抽屉 ---------------- */
+@media (max-width: 860px) {
+  .menu-toggle {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .sidebar-close {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* 侧栏滑出屏幕外，靠 transform 位移（比 display 切换多一层动画，
+     且不脱离文档流导致内容跳动） */
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 40;
+    transform: translateX(-100%);
+    transition: transform 0.24s ease;
+    box-shadow: none;
+  }
+
+  .sidebar.is-open {
+    transform: translateX(0);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.18);
+  }
+
+  .drawer-mask {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgba(0, 0, 0, 0.32);
+  }
+
+  /* 内容区不再给侧栏留位，撑满可用宽度。
+     不加 padding：各页面的 .page 自带内边距，这里再加会双重缩进。 */
+  .content {
+    width: 100%;
+  }
 }
 </style>

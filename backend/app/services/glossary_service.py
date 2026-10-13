@@ -30,6 +30,8 @@ def get_term(db: Session, term_id: uuid.UUID) -> GlossaryTerm:
 
 def create_term(db: Session, payload: GlossaryCreate) -> GlossaryTerm:
     name = payload.term.strip()
+    if not name:
+        raise ValidationError("术语名不能为空")
     exists = db.execute(
         select(GlossaryTerm).where(GlossaryTerm.term == name)
     ).scalars().first()

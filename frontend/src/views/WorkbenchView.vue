@@ -12,6 +12,97 @@
       </div>
     </div>
 
+    <!-- ================= 知识库概览（PKM：打开即用） ================= -->
+    <section class="pkm">
+      <div class="pkm-top">
+        <div class="pkm-daily">
+          <div>
+            <div class="pkm-daily-label">今日笔记</div>
+            <div class="pkm-daily-title">{{ wb.daily_title }}</div>
+          </div>
+          <el-button type="primary" @click="openDaily">
+            <el-icon><EditPen /></el-icon>
+            <span>{{ wb.daily_note ? '继续记录' : '开始记录' }}</span>
+          </el-button>
+        </div>
+        <div class="pkm-quick">
+          <el-button @click="$router.push('/notes/new')">
+            <el-icon><Plus /></el-icon><span>新建笔记</span>
+          </el-button>
+          <el-button @click="$router.push('/trash')">
+            <el-icon><Delete /></el-icon><span>回收站 {{ wb.counts.trash }}</span>
+          </el-button>
+          <el-button :loading="scanning" @click="scan">
+            <el-icon><Refresh /></el-icon><span>扫描同步</span>
+          </el-button>
+        </div>
+      </div>
+
+      <!-- 启动时的**只读**扫描结果：只提示，不自动改动任何内容 -->
+      <el-alert
+        v-if="startupAlert"
+        class="pkm-alert"
+        type="warning"
+        show-icon
+        :closable="true"
+        :title="startupAlert"
+      >
+        <div class="pkm-alert-body">
+          可能是你在编辑器里直接改了 <code>.md</code>，或往 <code>data/documents</code>
+          放了文件。点右上角「扫描同步」可让库与磁盘重新一致（会先列出差异再让你确认）。
+        </div>
+      </el-alert>
+
+      <div class="pkm-stats">
+        <button class="pkm-stat" type="button" @click="$router.push('/documents')">
+          <span class="pkm-stat-num">{{ wb.counts.documents }}</span>
+          <span class="pkm-stat-label">全部文档</span>
+        </button>
+        <button class="pkm-stat" type="button" @click="$router.push('/documents?view=note')">
+          <span class="pkm-stat-num">{{ wb.counts.notes }}</span>
+          <span class="pkm-stat-label">我的笔记</span>
+        </button>
+        <button class="pkm-stat" type="button" @click="$router.push('/documents?view=favorite')">
+          <span class="pkm-stat-num">{{ wb.counts.favorites }}</span>
+          <span class="pkm-stat-label">收藏</span>
+        </button>
+        <button class="pkm-stat" type="button" @click="$router.push('/documents')">
+          <span class="pkm-stat-num">{{ wb.counts.inbox }}</span>
+          <span class="pkm-stat-label">待整理</span>
+        </button>
+        <button class="pkm-stat" type="button" @click="$router.push('/search')">
+          <span class="pkm-stat-num">{{ wb.chunk_total }}</span>
+          <span class="pkm-stat-label">知识片段</span>
+        </button>
+        <button class="pkm-stat" type="button" @click="$router.push('/learning')">
+          <span class="pkm-stat-num">{{ srsDue }}</span>
+          <span class="pkm-stat-label">待复习</span>
+        </button>
+      </div>
+
+      <div class="pkm-grid">
+        <div v-for="card in pkmCards" :key="card.key" class="pkm-card">
+          <div class="pkm-card-head">
+            <span>{{ card.title }}</span>
+            <span class="pkm-card-hint">{{ card.hint }}</span>
+          </div>
+          <div v-if="!card.items.length" class="pkm-empty">{{ card.empty }}</div>
+          <button
+            v-for="n in card.items"
+            :key="n.id"
+            class="pkm-item"
+            type="button"
+            @click="openNote(n)"
+          >
+            <el-icon class="pkm-item-icon"><Document /></el-icon>
+            <span class="pkm-item-title">{{ n.title }}</span>
+            <span v-if="n.ai_enabled === false" class="pkm-item-lock">私密</span>
+            <span class="pkm-item-time">{{ short(n.updated_at) }}</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
     <!-- ================= 新手引导 ================= -->
     <section v-if="isFirstRun" class="hero">
       <div class="hero-main">
@@ -228,6 +319,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Aim,
   ChatDotRound,
@@ -241,14 +334,163 @@ import {
   TrendCharts,
   UploadFilled,
 } from '@element-plus/icons-vue'
-import { chatApi, documentsApi, settingsApi } from '@/api'
-import type { DocumentOut, IndexStatus, SettingsOut } from '@/api/types'
+import { chatApi, documentsApi, learningApi, settingsApi, workspaceApi } from '@/api'
+import type {
+  DocumentOut,
+  IndexStatus,
+  NoteBrief,
+  SettingsOut,
+  WorkbenchOut,
+} from '@/api/types'
 import { docStatusText as statusText, docStatusType as statusType } from '@/utils/status'
 
+const router = useRouter()
 const loading = ref(false)
 const recent = ref<DocumentOut[]>([])
 const settings = ref<SettingsOut | null>(null)
 const conversationCount = ref(0)
+const scanning = ref(false)
+
+/** 启动只读扫描的提示文案；三项都为 0 时不显示。 */
+const startupAlert = computed(() => {
+  const s = wb.value.startup_scan
+  if (!s) return ''
+  const parts: string[] = []
+  if (s.changed_count) parts.push(`${s.changed_count} 个文件被外部修改`)
+  if (s.missing_count) parts.push(`${s.missing_count} 个记录找不到对应文件`)
+  if (s.orphan_count) parts.push(`${s.orphan_count} 个未收录文件`)
+  return parts.length ? `启动检查发现：${parts.join('、')}` : ''
+})
+
+/** 工作台汇总（PKM 概览区数据）。 */
+const wb = ref<WorkbenchOut>({
+  recent_edited: [],
+  recent_viewed: [],
+  inbox: [],
+  favorites: [],
+  counts: { documents: 0, notes: 0, favorites: 0, inbox: 0, trash: 0, failed: 0, private: 0 },
+  chunk_total: 0,
+  daily_note: null,
+  daily_title: '',
+})
+
+/** 四张卡片：最近编辑 / 最近访问 / 待整理 / 收藏 */
+const pkmCards = computed(() => [
+  {
+    key: 'edited',
+    title: '最近编辑',
+    hint: '按更新时间',
+    empty: '还没有内容，点上方「新建笔记」开始',
+    items: wb.value.recent_edited as NoteBrief[],
+  },
+  {
+    key: 'viewed',
+    title: '最近访问',
+    hint: '按访问时间',
+    empty: '还没有访问记录',
+    items: wb.value.recent_viewed as NoteBrief[],
+  },
+  {
+    key: 'inbox',
+    title: '待整理（收集箱）',
+    hint: '尚未归类的文档',
+    empty: '收集箱是空的，很好',
+    items: wb.value.inbox as NoteBrief[],
+  },
+  {
+    key: 'fav',
+    title: '收藏',
+    hint: '常用笔记',
+    empty: '在文档列表点星标即可收藏',
+    items: wb.value.favorites as NoteBrief[],
+  },
+])
+
+function short(v?: string | null): string {
+  if (!v) return ''
+  const d = new Date(v)
+  const today = new Date()
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  if (d.getTime() >= start) {
+    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  }
+  return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+}
+
+/** 打开笔记：应用内笔记进编辑器，导入文档进详情页。 */
+function openNote(n: NoteBrief) {
+  if (n.source === 'note') router.push(`/notes/${n.id}/edit`)
+  else router.push(`/documents/${n.id}`)
+}
+
+/** 今日笔记：不存在则创建后进入编辑器。 */
+async function openDaily() {
+  try {
+    const doc = await workspaceApi.daily()
+    router.push(`/notes/${doc.id}/edit`)
+  } catch {
+    /* 错误提示由拦截器处理 */
+  }
+}
+
+/** 扫描磁盘与库的差异并同步（外部改过 .md 时用）。 */
+async function scan() {
+  scanning.value = true
+  try {
+    // 先只读扫描：把「未收录文件」交给用户决定，不静默导入
+    const preview = await workspaceApi.scan(false, false)
+    let registerOrphans = false
+    if (preview.orphan_count > 0) {
+      try {
+        await ElMessageBox.confirm(
+          `发现 ${preview.orphan_count} 个未收录文件（直接放在 data/documents 目录里的）。` +
+            '收录后会作为知识库文档参与检索与问答，是否一并收录？',
+          '发现未收录文件',
+          { type: 'info', confirmButtonText: '一并收录', cancelButtonText: '仅重建索引' },
+        )
+        registerOrphans = true
+      } catch {
+        registerOrphans = false
+      }
+    }
+
+    const res = await workspaceApi.scan(true, registerOrphans)
+    if (!res.changed_count && !res.orphan_count && !res.missing_count) {
+      ElMessage.success('磁盘与知识库一致，无需同步')
+    } else {
+      const parts: string[] = []
+      if (res.applied.reindexed) parts.push(`重建索引 ${res.applied.reindexed} 篇`)
+      if (res.applied.registered.length) parts.push(`收录 ${res.applied.registered.length} 个文件`)
+      if (res.missing_count) parts.push(`${res.missing_count} 个文件已丢失`)
+      if (res.orphan_count) parts.push(`${res.orphan_count} 个未收录文件未处理`)
+      ElMessage.success(parts.length ? `同步完成：${parts.join('，')}` : '同步完成')
+    }
+    await refreshAll()
+  } catch {
+    /* 错误提示由拦截器处理 */
+  } finally {
+    scanning.value = false
+  }
+}
+
+async function loadWorkbench() {
+  try {
+    wb.value = await workspaceApi.workbench()
+  } catch {
+    /* 概览失败不阻塞页面 */
+  }
+}
+
+/** 待复习卡片数（间隔复习队列）。 */
+const srsDue = ref(0)
+
+async function loadSrsDue() {
+  try {
+    srsDue.value = (await learningApi.srsStats()).due
+  } catch {
+    srsDue.value = 0
+  }
+}
 
 const status = ref<IndexStatus>({
   document_total: 0,
@@ -368,13 +610,198 @@ async function loadConversations() {
 }
 
 async function refreshAll() {
-  await Promise.all([loadStatus(), loadRecent(), loadSettings(), loadConversations()])
+  await Promise.all([
+    loadStatus(),
+    loadRecent(),
+    loadSettings(),
+    loadConversations(),
+    loadWorkbench(),
+    loadSrsDue(),
+  ])
 }
 
 onMounted(refreshAll)
 </script>
 
 <style scoped>
+/* ================= 知识库概览（PKM） ================= */
+.pkm {
+  margin-bottom: 18px;
+}
+
+.pkm-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.pkm-daily {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--kh-panel);
+  border: 1px solid var(--kh-border);
+  border-radius: var(--kh-radius);
+  padding: 12px 16px;
+}
+
+.pkm-daily-label {
+  font-size: 11.5px;
+  color: var(--kh-text-mute);
+}
+
+.pkm-daily-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.pkm-quick {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pkm-alert {
+  margin-top: 14px;
+}
+
+.pkm-alert-body {
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.pkm-alert-body code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--kh-bg);
+  font-size: 11.5px;
+}
+
+.pkm-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.pkm-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: 1px solid var(--kh-border);
+  background: var(--kh-panel);
+  border-radius: var(--kh-radius);
+  padding: 12px 14px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.pkm-stat:hover {
+  border-color: var(--kh-primary-border);
+  background: var(--kh-primary-soft);
+}
+
+.pkm-stat-num {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--kh-text);
+}
+
+.pkm-stat-label {
+  font-size: 12px;
+  color: var(--kh-text-sub);
+}
+
+.pkm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.pkm-card {
+  background: var(--kh-panel);
+  border: 1px solid var(--kh-border);
+  border-radius: var(--kh-radius);
+  padding: 12px 14px;
+}
+
+.pkm-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.pkm-card-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--kh-text-mute);
+}
+
+.pkm-empty {
+  font-size: 12.5px;
+  color: var(--kh-text-mute);
+  padding: 10px 0;
+}
+
+.pkm-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  padding: 7px 8px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.pkm-item:hover {
+  background: var(--kh-bg);
+}
+
+.pkm-item-icon {
+  color: var(--kh-text-mute);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.pkm-item-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--kh-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pkm-item-lock {
+  font-size: 10.5px;
+  color: var(--kh-text-mute);
+  border: 1px solid var(--kh-border);
+  border-radius: 4px;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+.pkm-item-time {
+  font-size: 11px;
+  color: var(--kh-text-mute);
+  flex-shrink: 0;
+}
+
 /* ================= 新手引导 ================= */
 .hero {
   display: grid;

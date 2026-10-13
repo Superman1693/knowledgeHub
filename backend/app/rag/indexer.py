@@ -17,6 +17,7 @@ from app.rag.chunker import (
     chunk_document_semantic,
     estimate_tokens,
 )
+from app.rag.pinyin import pinyin_of
 from app.services.parsers import ParsedDocument
 
 logger = get_logger(__name__)
@@ -103,12 +104,18 @@ async def build_index(db: Session, document: Document, parsed: ParsedDocument) -
                 parent_of[i] = parent.id
 
     for i, c in enumerate(chunks):
+        # 拼音列：标题 + 正文一起转。标题参与是因为用户常按小节标题回忆内容
+        # （"我记得有个叫响应式布局的小节"）。
+        # pypinyin 未安装时返回空串 → 存 NULL，检索自动退回纯文本匹配。
+        full_py, initials_py = pinyin_of(f"{c.heading or ''}\n{c.content or ''}")
         db.add(
             Chunk(
                 document_id=document.id,
                 chunk_index=c.index,
                 heading=c.heading,
                 content=c.content,
+                pinyin=full_py or None,
+                pinyin_initials=initials_py or None,
                 page_no=c.page_no,
                 token_count=c.token_count,
                 embedding=vectors[i] if vectors else None,

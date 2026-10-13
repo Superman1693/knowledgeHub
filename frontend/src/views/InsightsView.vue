@@ -177,6 +177,60 @@
             </div>
           </div>
         </el-tab-pane>
+
+        <!-- ============ 批量摘要 ============ -->
+        <el-tab-pane label="批量摘要" name="batch">
+          <div class="row">
+            <el-select
+              v-model="summaryDocIds"
+              multiple
+              filterable
+              collapse-tags
+              collapse-tags-tooltip
+              placeholder="选择要生成摘要的文档（单次最多 20 篇）"
+              style="width: 460px"
+            >
+              <el-option v-for="d in documents" :key="d.id" :label="d.title" :value="d.id" />
+            </el-select>
+            <el-button
+              type="primary"
+              :loading="loadingSummary"
+              :disabled="!summaryDocIds.length"
+              @click="loadBatchSummary"
+            >
+              生成摘要
+            </el-button>
+            <span class="hint">后端并发调用模型（同时最多 3 篇），可能较慢</span>
+          </div>
+
+          <div v-if="summaries.length" class="mt">
+            <el-alert
+              class="mb"
+              type="info"
+              :closable="false"
+              show-icon
+              :title="`已生成 ${summaries.length} 篇摘要（由 AI 依据正文生成，仅供参考）`"
+            />
+            <div v-for="s in summaries" :key="s.document_id" class="sum-item">
+              <div class="sum-head">
+                <span class="sum-title">{{ s.title }}</span>
+                <el-button
+                  link
+                  type="primary"
+                  size="small"
+                  @click="router.push(`/documents/${s.document_id}`)"
+                >
+                  打开笔记
+                </el-button>
+              </div>
+              <div class="sum-body">{{ s.summary }}</div>
+            </div>
+          </div>
+          <el-empty
+            v-else-if="summaryDone"
+            description="没有生成任何摘要（可能是模型不可用，或文档正文为空）"
+          />
+        </el-tab-pane>
       </el-tabs>
     </div>
   </div>
@@ -184,6 +238,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { documentsApi, insightsApi, tagsApi } from '@/api'
 import type {
@@ -195,6 +250,7 @@ import type {
 } from '@/api/types'
 import MermaidDiagram from '@/components/MermaidDiagram.vue'
 
+const router = useRouter()
 const tab = ref('duplicates')
 const documents = ref<DocumentOut[]>([])
 
@@ -216,10 +272,39 @@ const orgDocId = ref<string | null>(null)
 const suggestion = ref<OrganizeSuggestion | null>(null)
 const loadingOrg = ref(false)
 
+// ---------------- 批量摘要 ----------------
+const summaryDocIds = ref<string[]>([])
+const summaries = ref<{ document_id: string; title: string; summary: string }[]>([])
+const loadingSummary = ref(false)
+const summaryDone = ref(false)
+
+/** 后端单次上限 20 篇，这里同样截断，避免用户选了 30 篇却收到 422。 */
+async function loadBatchSummary() {
+  if (!summaryDocIds.value.length) return
+  loadingSummary.value = true
+  try {
+    const res = await insightsApi.batchSummary(summaryDocIds.value.slice(0, 20))
+    summaries.value = res.items
+    summaryDone.value = true
+    if (res.missing.length) {
+      ElMessage.warning(`${res.missing.length} 篇文档不存在或已删除，已跳过`)
+    }
+    if (res.items.length) ElMessage.success(`已生成 ${res.items.length} 篇摘要`)
+  } catch {
+    summaries.value = []
+  } finally {
+    loadingSummary.value = false
+  }
+}
+
 function openDoc(brief: ChunkBrief) {
-  // 带片段 ID 跳转，详情页会滚动定位并高亮
-  window.location.href = `#/documents/${brief.document_id}?chunk=${brief.chunk_id}`
-  window.location.reload()
+  // 带片段 ID 跳转，详情页会滚动定位并高亮。
+  // 注意：本项目用 createWebHistory（非 hash 路由），写 `#/documents/...` 只会
+  // 给当前地址追加一个 hash，再 reload 会重新加载本页 —— 表现为「点了没反应」。
+  router.push({
+    path: `/documents/${brief.document_id}`,
+    query: { chunk: brief.chunk_id },
+  })
 }
 
 async function loadDuplicates() {
@@ -323,8 +408,35 @@ onMounted(async () => {
   color: var(--kh-text-sub);
   line-height: 1.6;
 }
-.muted {
-  color: var(--kh-text-mute);
+.sum-item {
+  padding: 10px 12px;
+  background: var(--kh-panel);
+  border: 1px solid var(--kh-border-light);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.sum-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sum-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sum-body {
+  font-size: 12.5px;
+  color: var(--kh-text-sub);
+  line-height: 1.7;
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
+.muted {  color: var(--kh-text-mute);
   font-size: 12px;
 }
 .empty-hint {

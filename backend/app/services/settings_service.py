@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.factory import embedding_configured, get_embedding_provider, get_provider
 from app.core.config import settings
+from app.core.exceptions import ValidationError
 from app.core.logging import get_logger
 from app.models import AppSetting
 from app.schemas.settings import ModelTestResult, SettingsOut, SettingsUpdate
@@ -31,6 +32,14 @@ OVERRIDE_KEYS = [
     "default_answer_mode",
     "chunk_mode",
     "parent_child_enabled",
+    # 重排序开关（此前只在 .env 里，界面改不了）
+    "rerank_enabled",
+    "rerank_candidates",
+    # 数据目录（此前 SettingsUpdate 与设置页都有这一项，但不在本清单里 →
+    # 保存后被静默丢弃，界面却提示"已保存"）
+    "data_dir",
+    # 回收站保留天数（0 = 永不自动清理）
+    "trash_retention_days",
     # 联网补充（非敏感项；密钥单独写 .env）
     "web_search_enabled",
     "web_search_provider",
@@ -84,6 +93,9 @@ def to_out(db: Session) -> SettingsOut:
         search_top_k=settings.search_top_k,
         chunk_mode=settings.chunk_mode,
         parent_child_enabled=settings.parent_child_enabled,
+        rerank_enabled=settings.rerank_enabled,
+        rerank_candidates=settings.rerank_candidates,
+        trash_retention_days=settings.trash_retention_days,
         storage_mode=settings.storage_mode,
         default_answer_mode=getattr(settings, "default_answer_mode", "detail"),
         web_search_enabled=settings.web_search_enabled,
@@ -110,12 +122,50 @@ def update(db: Session, payload: SettingsUpdate) -> SettingsOut:
         settings.web_search_api_key = str(payload.web_search_api_key)
 
     for key, value in data.items():
-        if key in OVERRIDE_KEYS:
-            setattr(settings, key, value)
-            _save_override(db, key, value)
+        if key not in OVERRIDE_KEYS:
+            continue
+        if key == "data_dir":
+            value = _normalize_data_dir(db, str(value))
+            if value is None:
+                # 指向的还是同一个目录（只是写法不同）→ 不写覆盖层，
+                # 避免把 "./data" 漂移成绝对路径后再也回不去
+                continue
+        setattr(settings, key, value)
+        _save_override(db, key, value)
 
     db.commit()
     return to_out(db)
+
+
+def _normalize_data_dir(db: Session, new_dir: str) -> str | None:
+    """校验「切换数据目录」，返回应写入的值；`None` 表示无需改动。
+
+    两个坑都要处理：
+    1. 设置页回传的是**已解析的绝对路径**，而 `settings.data_dir` 可能是 `./data`
+       这种相对写法——两者指向同一目录时必须视为"没改"，否则每次保存都会误报冲突；
+    2. 库中 `documents.file_path` 存的是**相对数据目录**的路径，直接换目录会让
+       已有文档全部指向空气，所以库里有文档时拒绝直接切换并说明正确做法。
+    """
+    from pathlib import Path
+
+    from sqlalchemy import func, select
+
+    from app.core.config import PROJECT_ROOT
+    from app.models import Document
+
+    candidate = Path(new_dir).expanduser()
+    if not candidate.is_absolute():
+        candidate = PROJECT_ROOT / candidate
+    if candidate.resolve() == settings.data_path.resolve():
+        return None
+
+    count = db.execute(select(func.count()).select_from(Document)).scalar_one()
+    if count:
+        raise ValidationError(
+            f"库中已有 {count} 篇文档，直接切换数据目录会让它们的文件路径全部失效。"
+            "请先用「数据与备份」备份，把文件迁到新目录后，在 .env 里修改 DATA_DIR 并重启。"
+        )
+    return new_dir
 
 
 def _write_env(key: str, value: str) -> None:

@@ -99,6 +99,13 @@
         <el-form-item label="上传大小上限（MB）">
           <el-input-number v-model="form.max_upload_mb" :min="1" :max="2048" />
         </el-form-item>
+        <el-form-item label="回收站保留天数">
+          <el-input-number v-model="form.trash_retention_days" :min="0" :max="3650" />
+          <span class="hint">
+            0 表示**永不自动清理**（默认）。设为大于 0 后，启动时会彻底删除回收站中
+            超过该天数的文档（连同磁盘文件，不可恢复）。
+          </span>
+        </el-form-item>
         <el-form-item label="数据目录">
           <el-input v-model="form.data_dir" disabled />
         </el-form-item>
@@ -123,6 +130,19 @@
             「父块」（约 1500 字，命中后回传给模型，上下文更完整）。
             关闭则退化为单级分块。修改后需对文档「重建索引」才生效。
           </span>
+        </el-form-item>
+
+        <el-form-item label="LLM 重排序">
+          <el-switch v-model="form.rerank_enabled" />
+          <span class="hint">
+            开启后，检索会先取回更多候选，交给对话模型按相关性重排再返回——结果更准，
+            但每次检索都多一次模型调用（更慢、更费额度）。默认关闭。
+          </span>
+        </el-form-item>
+
+        <el-form-item v-if="form.rerank_enabled" label="重排候选数">
+          <el-input-number v-model="form.rerank_candidates" :min="1" :max="50" />
+          <span class="hint">送入重排的候选片段数，应不小于「默认返回条数」。</span>
         </el-form-item>
 
         <el-form-item label="存储方案">
@@ -234,6 +254,9 @@ const form = reactive({
   data_dir: '',
   chunk_mode: 'semantic',
   parent_child_enabled: true,
+  rerank_enabled: false,
+  rerank_candidates: 10,
+  trash_retention_days: 0,
   web_search_enabled: false,
   web_search_provider: 'bing',
   web_search_api_url: '',
@@ -272,6 +295,9 @@ async function load() {
       data_dir: s.data_dir,
       chunk_mode: s.chunk_mode,
       parent_child_enabled: s.parent_child_enabled,
+      rerank_enabled: s.rerank_enabled ?? false,
+      rerank_candidates: s.rerank_candidates ?? 10,
+      trash_retention_days: s.trash_retention_days ?? 0,
       web_search_enabled: s.web_search_enabled,
       web_search_provider: s.web_search_provider,
       web_search_api_url: s.web_search_api_url,

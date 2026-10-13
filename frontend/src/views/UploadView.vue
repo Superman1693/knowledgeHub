@@ -3,7 +3,10 @@
     <div class="page-header">
       <div>
         <h1 class="page-title">导入文档</h1>
-        <p class="page-sub">支持 Markdown、文本、PDF、Word、代码等多种格式，拖拽即可导入</p>
+        <p class="page-sub">
+          支持 Markdown、文本、PDF、Word、代码等多种格式，拖拽即可导入；
+          截图（PNG/JPG）会自动 OCR 识别其中的文字
+        </p>
       </div>
     </div>
 
@@ -69,7 +72,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { UploadFile, UploadFiles } from 'element-plus'
 import { documentsApi, settingsApi } from '@/api'
@@ -88,6 +91,9 @@ interface ResultRow {
 }
 
 const results = ref<ResultRow[]>([])
+
+// 轮询定时器放在组件作用域，便于卸载时清理（否则离开页面后仍会持续请求）
+let pollTimer: number | null = null
 
 function onChange(_file: UploadFile, files: UploadFiles) {
   fileList.value = files
@@ -119,7 +125,8 @@ async function submit() {
 /** 轮询刷新处理状态。 */
 function poll() {
   let rounds = 0
-  const timer = setInterval(async () => {
+  if (pollTimer !== null) window.clearInterval(pollTimer)
+  pollTimer = window.setInterval(async () => {
     rounds += 1
     let allDone = true
     for (const row of results.value) {
@@ -131,9 +138,17 @@ function poll() {
         /* ignore */
       }
     }
-    if (allDone || rounds > 60) clearInterval(timer)
+    if (allDone || rounds > 60) {
+      if (pollTimer !== null) window.clearInterval(pollTimer)
+      pollTimer = null
+    }
   }, 2000)
 }
+
+onBeforeUnmount(() => {
+  if (pollTimer !== null) window.clearInterval(pollTimer)
+  pollTimer = null
+})
 
 onMounted(async () => {
   try {

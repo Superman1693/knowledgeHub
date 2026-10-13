@@ -81,7 +81,7 @@ def get_messages(db: Session, conversation_id: uuid.UUID) -> list[Message]:
         db.execute(
             select(Message)
             .where(Message.conversation_id == conversation_id)
-            .order_by(Message.created_at)
+            .order_by(Message.created_at, Message.id)
         )
         .scalars()
         .all()
@@ -100,6 +100,15 @@ def _history(messages: list[Message]) -> list[dict]:
         for m in recent
         if m.role in ("user", "assistant")
     ]
+
+
+def _touch_conversation(conv: Conversation) -> None:
+    """显式刷新会话的 updated_at。
+
+    新增 Message 不会 UPDATE 会话行，因此 TimestampMixin 的 onupdate 不会触发；
+    不刷新的话会话列表（按 updated_at 排序）永远停在首条消息的时间，刚聊过的会话不会置顶。
+    """
+    conv.updated_at = func.now()
 
 
 # ---------------- 核心：检索 + 生成 ----------------
@@ -130,7 +139,9 @@ async def _answer_events(
 
     # 2) 检索知识库
     vec = await embed_query(question)
-    hits = hybrid_search(db, question, vec)
+    # 隐私（LocalMind 规则）：AI 问答只在 ai_enabled=true 的笔记中检索，
+    # 私密笔记在 SQL 层即被排除；回收站中的文档同样不参与检索。
+    hits = hybrid_search(db, question, vec, ai_only=True)
     yield _sse("sources", [h.model_dump(mode="json") for h in hits])
 
     # 3) 联网补充：仅当用户显式启用时才发起；未启用/失败时不联网、不伪称
@@ -155,6 +166,7 @@ async def _answer_events(
             source_type=None,
         )
         db.add(msg)
+        _touch_conversation(conv)
         db.commit()
         db.refresh(msg)
         yield _sse("delta", {"text": text})
@@ -210,6 +222,7 @@ async def _answer_events(
         reasoning="".join(reasoning_parts) or None,
     )
     db.add(msg)
+    _touch_conversation(conv)
     db.commit()
     db.refresh(msg)
     yield _sse(
@@ -240,6 +253,7 @@ async def ask_stream(conversation_id: uuid.UUID, payload: AskRequest) -> AsyncIt
         db.add(Message(conversation_id=conv.id, role="user", content=payload.question))
         if conv.title == "新会话":
             conv.title = payload.question[:30]
+        _touch_conversation(conv)
         db.commit()
 
         async for event in _answer_events(
@@ -301,7 +315,7 @@ async def regenerate_stream(
                     Message.conversation_id == conv.id,
                     Message.created_at < question_msg.created_at,
                 )
-                .order_by(Message.created_at)
+                .order_by(Message.created_at, Message.id)
             )
             .scalars()
             .all()
