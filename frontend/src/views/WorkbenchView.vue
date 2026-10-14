@@ -271,6 +271,144 @@
       </div>
     </div>
 
+    <!-- ================= 知识库体检 ================= -->
+    <!-- 笔记软件普遍只告诉你「存了多少」，不告诉你「有多少在用」。
+         这块把「存了没用」的内容显形：孤立笔记（零入链零出链）、
+         从未打开、收集箱陈旧、索引异常（等于搜不到）、悬空链接。 -->
+    <div v-if="health && health.summary.total > 0" class="card mt">
+      <div class="card-title">
+        <el-icon><FirstAidKit /></el-icon>知识库体检
+        <span class="spacer" />
+        <span class="muted-sm">
+          关联率
+          <b>{{ health.summary.linked_ratio == null ? '—' : Math.round(health.summary.linked_ratio * 100) + '%' }}</b>
+          （至少参与一条双链的笔记占比）
+        </span>
+      </div>
+
+      <div class="kb-metrics">
+        <button
+          v-for="m in healthMetrics"
+          :key="m.key"
+          class="kb-metric"
+          :class="{ 'is-active': healthTab === m.key, 'is-zero': m.value === 0 }"
+          type="button"
+          @click="healthTab = m.key"
+        >
+          <span class="kb-metric-value">{{ m.value }}</span>
+          <span class="kb-metric-label">{{ m.label }}</span>
+        </button>
+      </div>
+
+      <div class="kb-detail">
+        <template v-if="healthTab === 'orphans'">
+          <div class="kb-hint">
+            这些笔记<strong>既没有出链也没有入链</strong>——它们不会出现在任何「相关笔记」里，
+            也不容易被人顺着链接逛到。给它们补一条 <code>[[双链]]</code> 就能接进知识网络。
+          </div>
+          <div v-if="!health.orphans.length" class="kb-empty">没有孤立笔记，很好。</div>
+          <button
+            v-for="it in health.orphans"
+            :key="it.document_id"
+            class="kb-item"
+            type="button"
+            @click="$router.push(`/documents/${it.document_id}`)"
+          >
+            <el-icon><Document /></el-icon>
+            <span class="kb-item-title">{{ it.title }}</span>
+            <span class="kb-item-meta">{{ it.days_since_created }} 天前建立</span>
+          </button>
+        </template>
+
+        <template v-else-if="healthTab === 'never_viewed'">
+          <div class="kb-hint">建立后<strong>从未打开过</strong>的文档（不含 1 天内新建的）。</div>
+          <div v-if="!health.never_viewed.length" class="kb-empty">没有这类文档。</div>
+          <button
+            v-for="it in health.never_viewed"
+            :key="it.document_id"
+            class="kb-item"
+            type="button"
+            @click="$router.push(`/documents/${it.document_id}`)"
+          >
+            <el-icon><Document /></el-icon>
+            <span class="kb-item-title">{{ it.title }}</span>
+            <span class="kb-item-meta">{{ it.days_since_created }} 天前建立</span>
+          </button>
+        </template>
+
+        <template v-else-if="healthTab === 'stale_inbox'">
+          <div class="kb-hint">
+            在收集箱里超过 {{ health.thresholds.stale_inbox_days }} 天仍未分类的文档——
+            「先收着以后再整理」的以后往往没来。
+          </div>
+          <div v-if="!health.stale_inbox.length" class="kb-empty">收集箱没有积压。</div>
+          <button
+            v-for="it in health.stale_inbox"
+            :key="it.document_id"
+            class="kb-item"
+            type="button"
+            @click="$router.push(`/documents/${it.document_id}`)"
+          >
+            <el-icon><Document /></el-icon>
+            <span class="kb-item-title">{{ it.title }}</span>
+            <span class="kb-item-meta">{{ it.days_since_created }} 天前建立</span>
+          </button>
+        </template>
+
+        <template v-else-if="healthTab === 'unindexed'">
+          <div class="kb-hint">
+            这些文档<strong>搜不到</strong>——索引失败或没有生成任何片段。
+            到文档管理点「重建索引」，或检查嵌入模型是否可用。
+          </div>
+          <div v-if="!health.unindexed.length" class="kb-empty">没有索引异常。</div>
+          <button
+            v-for="it in health.unindexed"
+            :key="it.document_id"
+            class="kb-item"
+            type="button"
+            @click="$router.push(`/documents/${it.document_id}`)"
+          >
+            <el-icon><WarningFilled /></el-icon>
+            <span class="kb-item-title">{{ it.title }}</span>
+            <span class="kb-item-meta">
+              {{ it.status === 'failed' ? '索引失败' : '无片段' }}
+            </span>
+          </button>
+        </template>
+
+        <template v-else-if="healthTab === 'dangling_links'">
+          <div class="kb-hint">
+            这些 <code>[[双链]]</code> 指向的笔记还不存在——通常是「本打算写但忘了」的坑。
+          </div>
+          <div v-if="!health.dangling.length" class="kb-empty">没有悬空链接。</div>
+          <button
+            v-for="(it, i) in health.dangling"
+            :key="`${it.target_title}-${i}`"
+            class="kb-item"
+            type="button"
+            @click="$router.push(`/documents/${it.source_document_id}`)"
+          >
+            <el-icon><Link /></el-icon>
+            <span class="kb-item-title">{{ it.target_title }}</span>
+            <span class="kb-item-meta">来自《{{ it.source_document_title }}》</span>
+          </button>
+        </template>
+
+        <template v-else>
+          <div class="kb-hint">
+            内容高度相似的片段对（纯向量计算）。详情与阈值调整在
+            <el-link type="primary" @click="$router.push('/insights')">知识加工</el-link> 里。
+          </div>
+          <div v-if="!health.summary.duplicate_pairs" class="kb-empty">没有检测到明显重复。</div>
+          <div v-else class="kb-empty">
+            检测到 {{ health.summary.duplicate_pairs }} 对相似片段。
+          </div>
+        </template>
+      </div>
+
+      <div class="kb-foot">{{ health.note }}</div>
+    </div>
+
     <!-- ================= 最近文档 ================= -->
     <div class="card mt">
       <div class="card-title">
@@ -326,18 +464,30 @@ import {
   ChatDotRound,
   Check,
   Clock,
+  Document,
   DocumentAdd,
+  FirstAidKit,
+  Link,
   Lock,
   Notebook,
   Refresh,
   Search,
   TrendCharts,
   UploadFilled,
+  WarningFilled,
 } from '@element-plus/icons-vue'
-import { chatApi, documentsApi, learningApi, settingsApi, workspaceApi } from '@/api'
+import {
+  chatApi,
+  documentsApi,
+  insightsApi,
+  learningApi,
+  settingsApi,
+  workspaceApi,
+} from '@/api'
 import type {
   DocumentOut,
   IndexStatus,
+  KbHealthOut,
   NoteBrief,
   SettingsOut,
   WorkbenchOut,
@@ -345,6 +495,41 @@ import type {
 import { docStatusText as statusText, docStatusType as statusType } from '@/utils/status'
 
 const router = useRouter()
+
+// ---------------- 知识库体检 ----------------
+const health = ref<KbHealthOut | null>(null)
+type HealthTab = 'orphans' | 'never_viewed' | 'stale_inbox' | 'unindexed' | 'dangling_links' | 'duplicate_pairs'
+const healthTab = ref<HealthTab>('orphans')
+
+/** 指标卡：顺序即重要程度（孤立笔记最能说明「存了没用」）。 */
+const healthMetrics = computed(() => {
+  const s = health.value?.summary
+  if (!s) return []
+  return [
+    { key: 'orphans' as HealthTab, label: '孤立笔记', value: s.orphans },
+    { key: 'never_viewed' as HealthTab, label: '从未打开', value: s.never_viewed },
+    { key: 'stale_inbox' as HealthTab, label: '收集箱陈旧', value: s.stale_inbox },
+    { key: 'unindexed' as HealthTab, label: '索引异常', value: s.unindexed },
+    { key: 'dangling_links' as HealthTab, label: '悬空链接', value: s.dangling_links },
+    {
+      key: 'duplicate_pairs' as HealthTab,
+      label: '重复片段对',
+      value: s.duplicate_pairs ?? 0,
+    },
+  ]
+})
+
+async function loadHealth() {
+  try {
+    health.value = await insightsApi.health()
+    // 默认停在「有问题的第一项」，避免打开就是一堆 0
+    const first = healthMetrics.value.find((m) => m.value > 0)
+    if (first) healthTab.value = first.key
+  } catch {
+    // 体检是锦上添花，失败不影响工作台其它部分；错误提示由拦截器统一弹
+    health.value = null
+  }
+}
 const loading = ref(false)
 const recent = ref<DocumentOut[]>([])
 const settings = ref<SettingsOut | null>(null)
@@ -617,6 +802,7 @@ async function refreshAll() {
     loadConversations(),
     loadWorkbench(),
     loadSrsDue(),
+    loadHealth(),
   ])
 }
 
@@ -1098,6 +1284,137 @@ onMounted(refreshAll)
   }
   .grid-2 {
     grid-template-columns: 1fr;
+  }
+}
+/* ================= 知识库体检 ================= */
+.kb-metrics {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+/* 指标做成可点按钮：点一下切换下方清单，比下拉框少一次交互 */
+.kb-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 92px;
+  padding: 8px 12px;
+  border: 1px solid var(--kh-border);
+  border-radius: 8px;
+  background: var(--kh-panel);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.kb-metric:hover {
+  border-color: var(--kh-primary);
+}
+
+.kb-metric.is-active {
+  border-color: var(--kh-primary);
+  background: var(--kh-primary-soft);
+}
+
+/* 值为 0 的指标压暗：一眼就能看出「哪几项需要管」 */
+.kb-metric.is-zero .kb-metric-value {
+  color: var(--kh-text-mute);
+}
+
+.kb-metric-value {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: var(--kh-text);
+}
+
+.kb-metric-label {
+  font-size: 11.5px;
+  color: var(--kh-text-sub);
+  white-space: nowrap;
+}
+
+.kb-detail {
+  border-top: 1px solid var(--kh-border-light);
+  padding-top: 12px;
+}
+
+.kb-hint {
+  font-size: 12.5px;
+  color: var(--kh-text-sub);
+  line-height: 1.65;
+  margin-bottom: 8px;
+}
+
+.kb-hint code {
+  background: var(--kh-bg-deep);
+  border-radius: 3px;
+  padding: 0 3px;
+  font-size: 12px;
+}
+
+.kb-empty {
+  font-size: 12.5px;
+  color: var(--kh-text-mute);
+  padding: 6px 0;
+}
+
+.kb-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  color: var(--kh-text);
+}
+
+.kb-item:hover {
+  background: var(--kh-primary-soft);
+}
+
+.kb-item-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.kb-item-meta {
+  font-size: 11.5px;
+  color: var(--kh-text-mute);
+  flex-shrink: 0;
+}
+
+.kb-foot {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--kh-border-light);
+  font-size: 11.5px;
+  color: var(--kh-text-mute);
+  line-height: 1.6;
+}
+
+/* 窄屏：指标两列排布，标题里的关联率换行 */
+@media (max-width: 860px) {
+  .kb-metric {
+    min-width: 72px;
+    padding: 7px 9px;
+  }
+
+  .kb-metric-value {
+    font-size: 16px;
   }
 }
 </style>

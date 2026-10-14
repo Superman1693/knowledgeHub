@@ -19,6 +19,7 @@ import type {
   GradeResult,
   GraphOut,
   HealthOut,
+  KbHealthOut,
   IndexStatus,
   LinkSummary,
   OrganizeSuggestion,
@@ -620,6 +621,15 @@ export const systemApi = {
 
 // ===== 扩展模块：AI 知识加工 =====
 export const insightsApi = {
+  /** 知识库体检：孤立笔记 / 从未访问 / 陈旧收集箱 / 索引异常 / 悬空链接 / 重复对。
+   * 只报告不自动处理——孤立不代表该删，自动处置是不可逆的误判。 */
+  health(duplicateThreshold = 0.1) {
+    return client
+      .get<KbHealthOut>('/insights/health', {
+        params: { duplicate_threshold: duplicateThreshold },
+      })
+      .then((r) => r.data)
+  },
   /** 冗余检测：内容高度相似的片段对（纯向量计算，不消耗对话模型）。 */
   duplicates(threshold = 0.1, limit = 20) {
     return client

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.exceptions import AIUnavailableError, AppError, ValidationError
-from app.services import assist_service, insight_service, summary_service
+from app.services import assist_service, health_service, insight_service, summary_service
 
 router = APIRouter(prefix="/api/insights", tags=["insights"])
 
@@ -27,6 +27,20 @@ def duplicates(
         "items": items,
         "note": "相似片段仅供参考，系统不会自动合并或删除任何内容",
     }
+
+
+@router.get("/health")
+def health(
+    duplicate_threshold: float = Query(
+        0.10, ge=0.01, le=1.0, description="重复检测的余弦距离阈值"
+    ),
+    db: Session = Depends(get_db),
+) -> dict:
+    """知识库体检：孤立笔记 / 从未访问 / 陈旧收集箱 / 索引异常 / 悬空链接 / 重复对。
+
+    刻意**只报告不自动处理**——孤立不代表该删，自动处置是不可逆的误判。
+    """
+    return health_service.health(db, duplicate_threshold=duplicate_threshold)
 
 
 @router.get("/related/{document_id}")

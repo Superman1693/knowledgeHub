@@ -414,6 +414,54 @@ export interface WorkbenchCounts {
   private: number
 }
 
+/** 体检清单条目（孤立 / 从未访问 / 陈旧 / 未索引）的共有字段。 */
+export interface KbHealthItem {
+  document_id: string
+  title: string
+  source?: string | null
+  chunk_count?: number | null
+  created_at?: string | null
+  updated_at?: string | null
+  last_viewed_at?: string | null
+  days_since_created?: number | null
+  /** 仅 unindexed 项有 */
+  status?: string
+  error_message?: string | null
+}
+
+/** 悬空链接：指向不存在笔记的 [[双链]]，是「本打算写但忘了」的坑。 */
+export interface DanglingLink {
+  target_title: string
+  source_document_id: string
+  source_document_title: string
+}
+
+export interface KbHealthSummary {
+  total: number
+  orphans: number
+  never_viewed: number
+  inbox: number
+  stale_inbox: number
+  unindexed: number
+  dangling_links: number
+  favorites: number
+  /** 重复片段对数；嵌入服务不可用时为 null（其余项不受影响） */
+  duplicate_pairs: number | null
+  /** 关联率：至少参与一条双链的文档占比；无文档时为 null */
+  linked_ratio: number | null
+}
+
+export interface KbHealthOut {
+  summary: KbHealthSummary
+  orphans: KbHealthItem[]
+  never_viewed: KbHealthItem[]
+  stale_inbox: KbHealthItem[]
+  unindexed: KbHealthItem[]
+  dangling: DanglingLink[]
+  thresholds: { stale_inbox_days: number }
+  note: string
+}
+
 export interface WorkbenchOut {
   recent_edited: NoteBrief[]
   recent_viewed: NoteBrief[]
