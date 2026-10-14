@@ -10,7 +10,30 @@
       </div>
     </div>
 
+    <!-- 网页剪藏：看到好文章直接存进来，不必复制粘贴（格式会乱、且脱离知识库） -->
     <div class="card">
+      <div class="section-title">从网页剪藏</div>
+      <div class="clip-row">
+        <el-input
+          v-model="clipUrl"
+          placeholder="粘贴网页链接，例如 https://example.com/article"
+          clearable
+          :disabled="clipping"
+          @keydown.enter="submitClip"
+        />
+        <el-button type="primary" :loading="clipping" :disabled="!clipUrl.trim()" @click="submitClip">
+          剪藏
+        </el-button>
+      </div>
+      <div class="hint mt-sm">
+        自动提取正文并转为 Markdown，标题与来源地址一并保留。
+        只支持公开网页（<strong>不允许指向内网或本机地址</strong>），
+        需登录或纯前端渲染的页面可能取不到正文。
+      </div>
+      <div v-if="clipError" class="clip-error">{{ clipError }}</div>
+    </div>
+
+    <div class="card mt">
       <el-upload
         drag
         multiple
@@ -92,6 +115,30 @@ interface ResultRow {
 
 const results = ref<ResultRow[]>([])
 
+// ---------------- 网页剪藏 ----------------
+const clipUrl = ref('')
+const clipping = ref(false)
+const clipError = ref('')
+
+async function submitClip() {
+  const url = clipUrl.value.trim()
+  if (!url) return
+  clipping.value = true
+  clipError.value = ''
+  try {
+    const doc = await documentsApi.clipFromUrl(url)
+    ElMessage.success(`已剪藏《${doc.title}》`)
+    clipUrl.value = ''
+  } catch (e: any) {
+    // 后端对「已剪藏过」「内网地址」「取不到正文」都给了可读提示，
+    // 这里原样展示在卡片内而不是只弹 toast——用户需要照着提示改 URL
+    clipError.value =
+      e?.response?.data?.message || e?.response?.data?.detail || '剪藏失败，请检查链接'
+  } finally {
+    clipping.value = false
+  }
+}
+
 // 轮询定时器放在组件作用域，便于卸载时清理（否则离开页面后仍会持续请求）
 let pollTimer: number | null = null
 
@@ -170,5 +217,29 @@ onMounted(async () => {
 }
 .mt-sm {
   margin-top: 12px;
+}
+
+/* ---------------- 网页剪藏 ---------------- */
+.clip-row {
+  display: flex;
+  gap: 10px;
+}
+
+.clip-error {
+  margin-top: 10px;
+  padding: 8px 11px;
+  border-radius: 6px;
+  background: #fdf0f0;
+  border: 1px solid #f2c9c9;
+  color: #a32d2d;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* 窄屏：输入框与按钮堆叠，按钮撑满 */
+@media (max-width: 860px) {
+  .clip-row {
+    flex-direction: column;
+  }
 }
 </style>

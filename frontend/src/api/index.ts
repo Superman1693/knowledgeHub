@@ -70,6 +70,13 @@ export const documentsApi = {
   }) {
     return client.post<DocumentDetail>('/documents/notes', payload).then((r) => r.data)
   },
+  /** 网页剪藏：抓取 URL → 提取正文 → 转 Markdown 存为文档。
+   * 同一网址已剪藏过时后端会拒绝（422）并给出提示，除非 allowDuplicate。 */
+  clipFromUrl(url: string, allowDuplicate = false) {
+    return client
+      .post<DocumentDetail>('/documents/from-url', { url, allow_duplicate: allowDuplicate })
+      .then((r) => r.data)
+  },
   upload(files: File[]) {
     const form = new FormData()
     files.forEach((f) => form.append('files', f))

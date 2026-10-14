@@ -69,6 +69,8 @@ class DocumentOut(BaseModel):
     tags: list[DocumentTagOut] = []
     # ---- 个人知识库扩展 ----
     source: str = "upload"
+    # 网页剪藏的原始地址（source="web" 时非空），用于溯源与去重
+    source_url: str | None = None
     is_favorite: bool = False
     is_pinned: bool = False
     ai_enabled: bool = True
@@ -82,6 +84,14 @@ class DocumentDetail(DocumentOut):
     content_text: str | None = None
     # 正文指纹（sha256）：客户端保存时原样回传，作为乐观锁基线
     content_hash: str = ""
+
+
+class ClipUrlIn(BaseModel):
+    """网页剪藏入参。"""
+
+    url: str = Field(min_length=1, max_length=2048)
+    # 同一网址已剪藏过时，默认拒绝并提示；显式勾选才允许再存一份
+    allow_duplicate: bool = False
 
 
 class ChunkOut(BaseModel):

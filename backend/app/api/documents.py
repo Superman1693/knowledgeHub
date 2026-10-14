@@ -1,6 +1,6 @@
 """文档相关路由。
 
-注意路由声明顺序：`/trash`、`/export-all` 这类**静态路径**必须写在
+注意路由声明顺序：`/trash`、`/export-all`、`/from-url` 这类**静态路径**必须写在
 `/{document_id}` 之前，否则会被当成 UUID 解析并返回 422。
 """
 from __future__ import annotations
@@ -17,6 +17,7 @@ from app.core.exceptions import ValidationError
 from app.schemas.document import (
     BatchDocumentRequest,
     ChunkOut,
+    ClipUrlIn,
     DocumentDetail,
     DocumentListOut,
     DocumentOut,
@@ -25,7 +26,7 @@ from app.schemas.document import (
     RevisionDetail,
     RevisionOut,
 )
-from app.services import document_service, link_service
+from app.services import document_service, link_service, web_clip_service
 from app.storage import files
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -77,6 +78,23 @@ async def create_note(payload: NoteCreate, db: Session = Depends(get_db)) -> Doc
         category_id=payload.category_id,
         tags=payload.tags,
         ai_enabled=payload.ai_enabled,
+    )
+    return DocumentDetail.model_validate(doc)
+
+
+@router.post("/from-url", response_model=DocumentDetail, status_code=201)
+async def create_from_url(payload: ClipUrlIn, db: Session = Depends(get_db)) -> DocumentDetail:
+    """网页剪藏：抓取 URL → 提取正文 → 转 Markdown → 存为文档。
+
+    这是「输入漏斗」的入口——此前看到好文章只能复制粘贴（格式乱、元数据丢、
+    且脱离知识库不能双链与检索）。
+
+    安全：该接口让服务端替用户访问外部 URL，因此对所有目标（含每一跳重定向）
+    做 SSRF 校验，拒绝内网 / 本机 / 云元数据地址。详见
+    `app/services/web_clip_service.py` 模块文档。
+    """
+    doc, _info = await web_clip_service.clip_to_document(
+        db, payload.url, allow_duplicate=payload.allow_duplicate
     )
     return DocumentDetail.model_validate(doc)
 

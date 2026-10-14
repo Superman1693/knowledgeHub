@@ -70,10 +70,17 @@ class Document(Base, IdMixin, TimestampMixin):
     chunk_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # ---------------- 个人知识库（PKM）扩展 ----------------
-    # 正文来源：upload = 导入的外部文件；note = 在应用内新建或编辑过
+    # 正文来源：upload = 导入的外部文件；note = 在应用内新建或编辑过；
+    # web = 从网页剪藏（此时 source_url 记录原地址）
     source: Mapped[str] = mapped_column(
         String(16), default="upload", server_default="upload", nullable=False
     )
+    # 网页剪藏的原始地址。存它是为了：
+    # 1) 溯源——剪藏来的内容必须能回到出处；
+    # 2) 去重——同一网址重复剪藏时可提示而不是默默堆一份副本。
+    # index=True 与迁移里的 ix_documents_source_url 对应：按 URL 查重是
+    # 每次剪藏都要做的动作，走索引。两处必须一致，否则 alembic check 会报偏差。
+    source_url: Mapped[str | None] = mapped_column(Text, index=True)
     # 收藏 / 置顶：常用笔记（如自己的速查表）可快速访问
     is_favorite: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("false"), nullable=False

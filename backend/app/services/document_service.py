@@ -96,8 +96,14 @@ async def create_note(
     category_id: uuid.UUID | None = None,
     tags: list[str] | None = None,
     ai_enabled: bool = True,
+    source: str = "note",
+    source_url: str | None = None,
 ) -> Document:
-    """新建笔记：写盘 `.md` → 建记录 → 构建索引。"""
+    """新建笔记：写盘 `.md` → 建记录 → 构建索引。
+
+    `source` / `source_url` 供网页剪藏复用同一条写入链路
+    （`source="web"` + 原始地址），避免再写一份「写盘 + 建索引 + 双链解析」。
+    """
     stem = (title or "").strip()
     if not stem:
         raise ValidationError("笔记标题不能为空")
@@ -111,7 +117,8 @@ async def create_note(
         file_type=ext or "md",
         file_size=size,
         content_text=text,
-        source="note",
+        source=source,
+        source_url=source_url,
         status=STATUS_PENDING,
         # 私密笔记从建出来那一刻就不进 AI 检索范围，避免「先建后改」窗口期内
         # 被检索/问答读到
