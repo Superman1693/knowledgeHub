@@ -305,3 +305,4 @@ cd frontend
 | `docs/fix-report-2026-10-12.md` | 第二轮深度排查：数据安全 / 隐私一致性 / 前端可靠性（28 项缺陷） |
 | `docs/feature-gap-analysis-2026-10-12.md` | 功能盘点与待补缺口（四类），含每项的改动范围与优先级 |
 | `docs/pkm-benchmark-2026-10-13.md` | 与主流 PKM（Obsidian/Logseq/思源/Notion/Knota 等）横向对比与能力差距分析，含推荐行动顺序 |
+| `docs/proposal-pdf-annotation-2026-10-14.md` | PDF 批注的技术方案：三重锚定设计、数据模型、API、分阶段步骤与风险清单（待实施） |
