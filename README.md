@@ -90,6 +90,7 @@
 | 扫描件 OCR | PDF 无文本层时自动 OCR，引擎不可用时降级并给出提示 |
 | 附件管理 | 附件页可浏览 / 预览 / 复制 Markdown 引用 / 删除；编辑器支持粘贴截图即上传 |
 | 整库导出 | 一键导出全部笔记为带 YAML front-matter 的 Markdown 目录树（zip） |
+| 静态站导出 | 一键编译成可离线打开的 HTML 站点（索引页 + 每篇一页 + 样式表）：双链变成页面间真实链接、代码高亮、索引页可筛选；**私密笔记默认不导出** |
 | 单篇导出 | Markdown / 纯文本 |
 
 ### 数据安全
@@ -128,7 +129,7 @@
 | 数据库 | **PostgreSQL 18 + pgvector**（关系 + 向量 + pg_trgm 关键词，一库搞定） |
 | 文件存储 | 本地文件系统 `data/` |
 | AI | 本地模型（Ollama 兼容）或外部 OpenAI 兼容 API |
-| 测试 | pytest（170 用例）+ Vitest（26 例）+ vue-tsc 类型检查 |
+| 测试 | pytest（174 用例）+ Vitest（45 例）+ vue-tsc 类型检查 |
 
 ---
 
@@ -190,7 +191,7 @@ cd backend
 python -m pytest tests -v --basetemp=.pytest_tmp
 ```
 
-当前基线：**167 passed, 3 skipped**。
+当前基线：**171 passed, 3 skipped**。
 
 > `--basetemp=.pytest_tmp` 不是可选项而是**本机必须加的参数**：
 > 本机把 `%TEMP%` 下的目录纳入「安全删除」保护，pytest 清理旧的临时目录时
@@ -209,7 +210,7 @@ python -m pytest tests -v --basetemp=.pytest_tmp
 ```bash
 cd frontend
 ./node_modules/.bin/vue-tsc -b      # 类型检查
-./node_modules/.bin/vitest run      # 单元测试（当前 26 passed）
+./node_modules/.bin/vitest run      # 单元测试（当前 44 passed, 1 skipped）
 ./node_modules/.bin/vite build      # 生产构建
 ```
 

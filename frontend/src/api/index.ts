@@ -180,6 +180,30 @@ export const documentsApi = {
   },
 
   /** 整库导出为 Markdown 目录树（zip）。 */
+  /** 静态站导出所需的全量数据（渲染与打包在前端完成，见 utils/staticSite.ts）。 */
+  siteBundle(includePrivate = false) {
+    return client
+      .get<{
+        generated_at: string
+        count: number
+        excluded_private: number
+        include_private: boolean
+        notes: {
+          id: string
+          title: string
+          content_text: string
+          category: string | null
+          tags: string[]
+          source: string
+          source_url: string | null
+          ai_enabled: boolean
+          updated_at: string | null
+          created_at: string | null
+        }[]
+        note: string
+      }>('/documents/site-bundle', { params: { include_private: includePrivate } })
+      .then((r) => r.data)
+  },
   exportAll() {
     return client
       .post<{ name: string; path: string; count: number; size: number }>(

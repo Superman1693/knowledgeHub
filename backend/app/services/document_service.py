@@ -750,6 +750,60 @@ def _front_matter(doc: Document) -> str:
     return "\n".join(lines)
 
 
+def site_bundle(db: Session, include_private: bool = False) -> dict:
+    """导出静态站所需的全部数据（不渲染 HTML，由前端用同一套管线渲染）。
+
+    **为什么渲染放在前端**：App 的 Markdown 管线是 `markdown-it({html: true})`
+    + **DOMPurify** 净化。`html: true` 是必须的（语雀/Notion 导出的笔记含
+    `<font style=...>` 这类内联标签）。后端没有 DOMPurify，而**手写 HTML
+    净化器正是最危险的事**——本项目历史上就因为用正则黑名单做净化被
+    `<svg/onload=...>` 绕过，才换成 DOMPurify。
+    所以后端只提供数据，渲染交给前端已有的、已验证过的那条管线，
+    顺带保证「静态站的样子 = 应用里预览的样子」。
+
+    `include_private=False`（默认）时排除 `ai_enabled=False` 的私密笔记。
+    静态站是拿来分享/发布的，把私密笔记默认卷进去风险太大；
+    要导出就显式勾选，并会在返回值里告诉你排除了几篇。
+    """
+    stmt = select(Document).where(Document.deleted_at.is_(None))
+    docs = list(db.execute(stmt.order_by(Document.title)).scalars().all())
+
+    excluded = 0
+    notes: list[dict] = []
+    for doc in docs:
+        if not include_private and doc.ai_enabled is False:
+            excluded += 1
+            continue
+        notes.append(
+            {
+                "id": str(doc.id),
+                "title": doc.title,
+                "content_text": doc.content_text or "",
+                "category": doc.category.name if doc.category else None,
+                "tags": [t.name for t in doc.tags],
+                "source": doc.source,
+                "source_url": doc.source_url,
+                # 带上私密标记：前端据此在本地过滤，不必为「是否含私密」
+                # 再请求一次（一次拿全量，两种导出共用）
+                "ai_enabled": doc.ai_enabled,
+                "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
+                "created_at": doc.created_at.isoformat() if doc.created_at else None,
+            }
+        )
+
+    return {
+        "generated_at": datetime.now().isoformat(),
+        "count": len(notes),
+        "excluded_private": excluded,
+        "include_private": include_private,
+        "notes": notes,
+        "note": (
+            "渲染与打包在前端完成：复用应用自身的 markdown-it + DOMPurify 管线，"
+            "保证静态站与应用内预览一致。"
+        ),
+    }
+
+
 def export_all(db: Session) -> dict:
     """把全部笔记导出为 Markdown 目录树（zip），落到 data/exports/。
 

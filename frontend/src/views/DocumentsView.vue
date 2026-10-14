@@ -14,6 +14,10 @@
           <el-icon><Download /></el-icon>
           <span>整库导出</span>
         </el-button>
+        <el-button @click="siteExportOpen = true">
+          <el-icon><Monitor /></el-icon>
+          <span>导出静态站</span>
+        </el-button>
         <el-button @click="$router.push('/upload')">
           <el-icon><UploadFilled /></el-icon>
           <span>导入文档</span>
@@ -175,6 +179,38 @@
       />
     </div>
   </div>
+  <!-- 静态站导出：可离线打开、可直接托管（GitHub Pages / 内网静态服务） -->
+  <el-dialog v-model="siteExportOpen" title="导出静态站" width="520px">
+    <div class="site-export-body">
+      <p>
+        把全部笔记编译成一组 HTML（索引页 + 每篇一页 + 样式表），
+        打包为 zip。解压后双击 <code>index.html</code> 即可离线阅读，
+        也可以直接托管到任意静态服务器。
+      </p>
+      <ul>
+        <li>双链 <code>[[标题]]</code> 会变成页面之间的真实链接</li>
+        <li>指向未创建笔记的引用会保留虚线标记（不留死链）</li>
+        <li>渲染复用应用自身的管线，<strong>样子与这里预览一致</strong></li>
+      </ul>
+      <el-checkbox v-model="siteIncludePrivate">
+        包含私密笔记（{{ privateCount }} 篇）
+      </el-checkbox>
+      <div class="site-export-warn">
+        <el-icon><WarningFilled /></el-icon>
+        <span>
+          静态站是拿来分享或发布的。私密笔记默认<strong>不导出</strong>——
+          它们的「不进入 AI 检索」设定不代表可以公开。
+          确需导出请显式勾选。
+        </span>
+      </div>
+    </div>
+    <template #footer>
+      <el-button @click="siteExportOpen = false">取消</el-button>
+      <el-button type="primary" :loading="siteExporting" @click="exportSite">
+        生成并下载
+      </el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
@@ -182,6 +218,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { FolderOpened, UploadFilled } from '@element-plus/icons-vue'
+import { buildSiteZip } from '@/utils/staticSite'
 import { categoriesApi, documentsApi, tagsApi } from '@/api'
 import type { Category, DocumentOut, Tag } from '@/api/types'
 import { docStatusText as statusText, docStatusType as statusType } from '@/utils/status'
@@ -232,6 +269,81 @@ async function togglePinned(row: DocumentOut) {
   row.is_pinned = updated.is_pinned
   // 置顶会改变排序，重新拉取以体现顺序
   reload()
+}
+
+// ---------------- 静态站导出 ----------------
+const siteExportOpen = ref(false)
+const siteExporting = ref(false)
+const siteIncludePrivate = ref(false)
+/** 预取的全量数据：打开对话框时拉一次，导出时直接用，避免重复请求 */
+const siteBundle = ref<Awaited<ReturnType<typeof documentsApi.siteBundle>> | null>(null)
+const privateCount = computed(() => siteBundle.value?.excluded_private ?? 0)
+
+async function loadSiteBundle() {
+  siteBundle.value = null
+  try {
+    siteBundle.value = await documentsApi.siteBundle(true)
+  } catch {
+    /* 错误提示由拦截器统一处理 */
+  }
+}
+
+watch(siteExportOpen, (open) => {
+  if (open) {
+    siteIncludePrivate.value = false
+    void loadSiteBundle()
+  }
+})
+
+async function exportSite() {
+  const bundle = siteBundle.value
+  if (!bundle) {
+    ElMessage.warning('数据还没准备好，请稍候重试')
+    return
+  }
+  siteExporting.value = true
+  try {
+    // 勾选框即时生效：数据里带 ai_enabled，本地过滤即可，无需再请求
+    const chosen = siteIncludePrivate.value
+      ? bundle.notes
+      : bundle.notes.filter((n) => n.ai_enabled !== false)
+
+    if (!chosen.length) {
+      ElMessage.warning('没有可导出的笔记')
+      return
+    }
+
+    const { bytes, noteCount, missingLinks, filename } = buildSiteZip(
+      chosen.map((n) => ({
+        id: n.id,
+        title: n.title,
+        content_text: n.content_text,
+        category: n.category,
+        tags: n.tags,
+        updated_at: n.updated_at,
+        source_url: n.source_url,
+      })),
+    )
+
+    const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/zip' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+
+    const excluded = bundle.notes.length - chosen.length
+    const parts = [`已导出静态站：${noteCount} 篇`]
+    if (missingLinks) parts.push(`含 ${missingLinks} 处未创建的引用`)
+    if (excluded) parts.push(`已排除 ${excluded} 篇私密笔记`)
+    ElMessage.success(parts.join('，'))
+    siteExportOpen.value = false
+  } catch {
+    /* 错误提示由拦截器统一处理 */
+  } finally {
+    siteExporting.value = false
+  }
 }
 
 async function exportAll() {
@@ -452,5 +564,46 @@ watch(
 .title-tag {
   margin-left: 6px;
   transform: scale(0.88);
+}
+/* ================= 静态站导出对话框 ================= */
+.site-export-body p {
+  margin: 0 0 10px;
+  line-height: 1.7;
+  color: var(--kh-text-sub);
+  font-size: 13px;
+}
+
+.site-export-body ul {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  line-height: 1.8;
+  color: var(--kh-text-sub);
+  font-size: 13px;
+}
+
+.site-export-body code {
+  background: var(--kh-bg-deep);
+  border-radius: 3px;
+  padding: 0 3px;
+  font-size: 12px;
+}
+
+.site-export-warn {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 12px;
+  padding: 9px 11px;
+  border-radius: 6px;
+  background: #fdf8ef;
+  border: 1px solid #e8d5b0;
+  color: #8a5f1a;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.site-export-warn .el-icon {
+  margin-top: 2px;
+  flex-shrink: 0;
 }
 </style>

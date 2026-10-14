@@ -140,6 +140,22 @@ def purge_expired_trash(db: Session = Depends(get_db)) -> dict:
     }
 
 
+@router.get("/site-bundle")
+def site_bundle(
+    include_private: bool = Query(
+        False, description="是否包含私密笔记（ai_enabled=false）；默认排除"
+    ),
+    db: Session = Depends(get_db),
+) -> dict:
+    """静态站导出所需的全量数据（JSON）。
+
+    只提供数据，**渲染与打包在前端**——复用应用自身的 markdown-it + DOMPurify
+    管线，保证静态站与应用内预览一致，也避免在后端手写 HTML 净化器
+    （那是最容易出安全漏洞的地方）。
+    """
+    return document_service.site_bundle(db, include_private=include_private)
+
+
 @router.post("/export-all")
 def export_all(db: Session = Depends(get_db)) -> dict:
     """把全部笔记导出为带 front-matter 的 Markdown 目录树（zip）。
