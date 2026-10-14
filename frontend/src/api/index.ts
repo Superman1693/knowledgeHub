@@ -211,6 +211,18 @@ export const workspaceApi = {
   daily() {
     return client.post<DocumentDetail>('/workspace/daily').then((r) => r.data)
   },
+  /** 速记：把一句话追加到今日笔记的「今日记录」小节。
+   * 低摩擦捕获入口，不新建独立笔记（避免收集箱被文档碎片冲垮）。 */
+  capture(text: string) {
+    return client
+      .post<{
+        document_id: string
+        document_title: string
+        daily_created: boolean
+        message: string
+      }>('/workspace/capture', { text })
+      .then((r) => r.data)
+  },
   templates() {
     return client
       .get<{ total: number; items: TemplateOut[] }>('/workspace/templates')

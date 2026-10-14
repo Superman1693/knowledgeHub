@@ -30,7 +30,10 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
 
-BACKEND_HOST = "127.0.0.1"
+# 监听地址：默认仅本机。要让手机通过局域网访问，在 .env 里设 BACKEND_HOST=0.0.0.0。
+# 后端会强制要求同时设置 ACCESS_TOKEN（见 backend/app/core/security.py），
+# 所以这里不做校验，交给后端在启动时 fail-closed 拒绝。
+BACKEND_HOST = os.environ.get("BACKEND_HOST", "127.0.0.1").strip() or "127.0.0.1"
 BACKEND_PORT = "8000"
 FRONTEND_PORT = "5173"
 
@@ -210,6 +213,9 @@ def start_detached(py: Path, backend_port: int, frontend_port: int) -> None:
     frontend_env = os.environ.copy()
     frontend_env["KH_BACKEND_PORT"] = str(backend_port)
     frontend_env["KH_FRONTEND_PORT"] = str(frontend_port)
+    # 监听地址：让 Vite dev server 与后端监听同一个地址。
+    # 仅本机时是 127.0.0.1；BACKEND_HOST=0.0.0.0 时手机才能连上前端页面。
+    frontend_env["KH_HOST"] = BACKEND_HOST
     npm = "npm.cmd" if os.name == "nt" else "npm"
     frontend_proc = subprocess.Popen(
         [npm, "run", "dev"],
@@ -294,6 +300,9 @@ def start_services(py: Path) -> None:
     frontend_env = os.environ.copy()
     frontend_env["KH_BACKEND_PORT"] = str(backend_port)
     frontend_env["KH_FRONTEND_PORT"] = str(frontend_port)
+    # 监听地址：让 Vite dev server 与后端监听同一个地址。
+    # 仅本机时是 127.0.0.1；BACKEND_HOST=0.0.0.0 时手机才能连上前端页面。
+    frontend_env["KH_HOST"] = BACKEND_HOST
 
     npm = "npm.cmd" if os.name == "nt" else "npm"
     frontend_proc = subprocess.Popen(

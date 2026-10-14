@@ -151,6 +151,75 @@ async def get_or_create_daily_note(db: Session, day: date | None = None) -> tupl
     return doc, True
 
 
+# ---------------- 速记（快速捕获）----------------
+# 「今日记录」小节的标题，速记条目追加到它下面
+_DAILY_SECTION = "## 今日记录"
+
+
+def _append_to_daily(body: str, line: str) -> str:
+    """把一行速记插进「## 今日记录」小节末尾；没有该小节就追加到文末。
+
+    刻意插进小节而不是无脑追加到文末：每日笔记模板里「今日记录」下面还有
+    「待办」「学到的东西」两节，追加到文末会让速记跑到「学到的东西」后面，
+    越记越乱。
+    """
+    text = body or ""
+    lines = text.splitlines()
+
+    start = next(
+        (i for i, ln in enumerate(lines) if ln.strip() == _DAILY_SECTION), None
+    )
+    if start is None:
+        sep = "" if (not text or text.endswith("\n")) else "\n"
+        return f"{text}{sep}{line}\n"
+
+    # 小节范围 = 标题行的下一行，到下一个 `## ` 标题之前
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        if lines[i].startswith("## "):
+            end = i
+            break
+
+    # 插到小节正文末尾（跳过尾部空行，避免条目之间越攒越多空行）
+    at = end
+    while at > start + 1 and not lines[at - 1].strip():
+        at -= 1
+    lines.insert(at, line)
+    return "\n".join(lines) + "\n"
+
+
+async def quick_capture(db: Session, text: str) -> tuple[Document, bool, str]:
+    """把一句话追加到今日笔记，返回 (文档, 今日笔记是否新建, 追加后的正文)。
+
+    这是「低摩擦捕获」入口：用户在任意页面按 `Ctrl+K` 记一笔，
+    不必先决定标题、分类、放哪——先记下来，整理留到以后。
+    知识库的价值取决于流入量，而入口摩擦是流入量的天花板。
+
+    刻意不复用 `create_note` 新建一篇独立笔记：那样每记一句话就多一个
+    文档碎片，收集箱会被冲垮，反而增加整理负担。追加到今日笔记是
+    Logseq / 思源「日志」流的通行做法。
+    """
+    cleaned = (text or "").strip()
+    if not cleaned:
+        raise ValidationError("速记内容不能为空")
+    if len(cleaned) > 2000:
+        raise ValidationError("单条速记过长（上限 2000 字），请改为新建笔记")
+
+    doc, created = await get_or_create_daily_note(db)
+    stamp = datetime.now().strftime("%H:%M")
+    # 多行输入压成单行条目：一行一条便于以后按行筛选和复制
+    one_line = " ".join(cleaned.split())
+    line = f"- {stamp} {one_line}"
+
+    new_body = _append_to_daily(doc.content_text or "", line)
+
+    from app.services import document_service
+
+    await document_service.update_document(db, doc.id, content_text=new_body)
+    db.refresh(doc)
+    return doc, created, new_body
+
+
 # ---------------- 笔记模板 ----------------
 def ensure_builtin_templates() -> None:
     """首次启动写入内置模板（已存在则不覆盖，尊重用户修改）。"""

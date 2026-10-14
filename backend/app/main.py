@@ -29,6 +29,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import get_logger, setup_logging
+from app.core.security import AccessTokenMiddleware, assert_exposure_is_safe
 from app.services import document_service, settings_service, workspace_service
 
 logger = get_logger(__name__)
@@ -36,6 +37,11 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # 最先执行：对外监听却没设口令就拒绝启动（fail-closed）。
+    # 放在最前面是刻意的——任何初始化动作之前就该拦下来，
+    # 不能出现"已经连上数据库、开了扫描、然后才报错退出"的状态。
+    assert_exposure_is_safe()
+
     setup_logging()
     settings.ensure_dirs()
     # 首次启动写入内置笔记模板（已存在则不覆盖）
@@ -77,6 +83,13 @@ app = FastAPI(
     description="本地个人知识库 AI 平台后端",
     lifespan=lifespan,
 )
+
+# 局域网访问口令校验（未设 ACCESS_TOKEN 时是直通）。
+# ⚠️ 必须注册在 CORS **之前**：Starlette 中越晚注册的中间件越靠外层，
+# 所以先注册口令、后注册 CORS，CORS 才会在最外层——
+# 这样口令中间件返回的 401 也会带上 CORS 头。否则浏览器只报"跨域失败"，
+# 用户根本看不到"口令错误"这个真正原因。
+app.add_middleware(AccessTokenMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

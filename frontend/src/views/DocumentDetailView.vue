@@ -144,6 +144,47 @@
           <span v-if="!o.resolved" class="link-tag">未创建</span>
         </button>
       </div>
+
+      <!-- 内容相近的笔记：语义相似但未必已建立双链。
+           此前这个能力只在「扩展模块 → 知识加工」里、且要手动下拉选文档；
+           而「读到一半发现有篇相关笔记」正是它该出现的时刻。 -->
+      <div class="link-block">
+        <div class="link-block-title">
+          内容相近的笔记
+          <span v-if="relatedLoading" class="muted-sm">读取中…</span>
+        </div>
+
+        <div v-if="relatedError" class="muted-sm">
+          {{ relatedError }}
+        </div>
+        <div v-else-if="!relatedLoading && !related.length" class="muted-sm">
+          库里还没有内容相近的笔记。
+        </div>
+
+        <button
+          v-for="r in related"
+          :key="r.document_id"
+          class="link-item related-item"
+          type="button"
+          @click="$router.push(`/documents/${r.document_id}`)"
+        >
+          <el-icon><Document /></el-icon>
+          <span class="link-text">{{ r.document_title }}</span>
+          <!-- 相似度条：只看数字不好判断“多像”，给个视觉刻度 -->
+          <span class="related-bar" :title="`相似度 ${(r.similarity * 100).toFixed(0)}%`">
+            <i :style="{ width: relatedPct(r.similarity) + '%' }" />
+          </span>
+          <span class="related-pct">{{ (r.similarity * 100).toFixed(0) }}%</span>
+          <!-- 已建立双链的标出来，剩下的就是「值得建立但还没建」的候选 -->
+          <span v-if="isLinked(r.document_id)" class="link-tag is-linked">已双链</span>
+          <span v-else class="link-tag is-candidate">未关联</span>
+        </button>
+
+        <div v-if="related.length" class="muted-sm related-hint">
+          标「未关联」的说明内容相近但正文里还没写 <code>[[双链]]</code>，
+          可到编辑器用「关联」按钮补上。
+        </div>
+      </div>
     </div>
 
     <div v-if="doc" class="card mt">
@@ -182,8 +223,15 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { categoriesApi, documentsApi, tagsApi } from '@/api'
-import type { Category, ChunkOut, DocumentDetail, LinkSummary, Tag } from '@/api/types'
+import { categoriesApi, documentsApi, insightsApi, tagsApi } from '@/api'
+import type {
+  Category,
+  ChunkOut,
+  DocumentDetail,
+  LinkSummary,
+  RelatedDocument,
+  Tag,
+} from '@/api/types'
 import MarkdownView from '@/components/MarkdownView.vue'
 import { docStatusText as statusText, docStatusType as statusType } from '@/utils/status'
 
@@ -282,8 +330,8 @@ async function load() {
     chunks.value = await documentsApi.chunks(id)
     // 记录一次访问，供「最近访问」列表使用（失败不影响页面）
     documentsApi.touchViewed(id).catch(() => {})
-    // 双向链接（失败不影响页面）
-    loadLinks()
+    // 双向链接（失败不影响页面）；相关笔记要等出链拿到后再去重，故串在后面
+    loadLinks().then(loadRelated)
   } finally {
     loading.value = false
   }
@@ -295,6 +343,49 @@ async function loadLinks() {
   } catch {
     /* 忽略 */
   }
+}
+
+// ---------------- 内容相近的笔记 ----------------
+const related = ref<RelatedDocument[]>([])
+const relatedLoading = ref(false)
+const relatedError = ref('')
+
+/**
+ * 拉取语义相近的文档。
+ *
+ * 该接口依赖**向量**，嵌入服务不可用时会失败——这种情况给出明确提示而不是
+ * 静默空列表，否则用户会以为「知识库里真没有相关笔记」。
+ */
+async function loadRelated() {
+  relatedLoading.value = true
+  relatedError.value = ''
+  try {
+    const res = await insightsApi.related(id, 6)
+    // 排除已在出链/反链里出现过的，避免同一篇笔记在「关联笔记」卡片里出现两次
+    const linkedIds = new Set(
+      linkSummary.value.outgoing.map((o) => o.target_document_id).filter(Boolean) as string[],
+    )
+    linkedIds.add(id)
+    related.value = res.items.filter((r) => !linkedIds.has(r.document_id))
+  } catch {
+    relatedError.value = '内容相近的笔记需要语义向量，当前嵌入服务不可用或该笔记尚未建立索引。'
+    related.value = []
+  } finally {
+    relatedLoading.value = false
+  }
+}
+
+/** 相似度条宽度：0.3 以下基本不相关，映射到 0%；0.9 以上给满格。 */
+function relatedPct(similarity: number) {
+  const lo = 0.3
+  const hi = 0.9
+  const v = Math.min(1, Math.max(0, (similarity - lo) / (hi - lo)))
+  return Math.round(v * 100)
+}
+
+/** 该文档是否已在出链里（用于区分「已双链」与「未关联」候选）。 */
+function isLinked(documentId: string) {
+  return linkSummary.value.outgoing.some((o) => o.target_document_id === documentId)
 }
 
 /**
@@ -519,6 +610,62 @@ watch(
   border: 1px solid var(--kh-border);
   border-radius: 4px;
   padding: 0 4px;
+  flex-shrink: 0;
+}
+
+/* ---------------- 内容相近的笔记 ---------------- */
+.related-item {
+  gap: 8px;
+}
+
+/* 相似度条：宽度按 0.3~0.9 映射，低于 0.3 不显示长度（基本不相关） */
+.related-bar {
+  width: 56px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--kh-border-light);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.related-bar i {
+  display: block;
+  height: 100%;
+  background: var(--kh-primary);
+  border-radius: 3px;
+}
+
+.related-pct {
+  font-size: 11.5px;
+  color: var(--kh-text-sub);
+  font-variant-numeric: tabular-nums;
+  width: 32px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* 未关联的用醒目色：它正是「值得建立但还没建」的候选 */
+.link-tag.is-candidate {
+  color: #b88230;
+  border-color: #e8d5b0;
+  background: #fdf8ef;
+}
+
+.link-tag.is-linked {
+  color: var(--kh-text-sub);
+}
+
+.related-hint {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--kh-border-light);
+}
+
+/* 窄屏：相似度条收窄，百分比保留 */
+@media (max-width: 860px) {
+  .related-bar {
+    width: 36px;
+  }
 }
 .title-row {
   display: flex;

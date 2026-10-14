@@ -382,11 +382,15 @@ def test_title_is_searchable(client: TestClient) -> None:
     from app.rag.retriever import keyword_search
 
     suffix = uuid.uuid4().hex[:8]
-    # 标题含独有词，正文刻意不含
+    # ⚠️ 前缀必须补一个字母：`uuid4().hex` 有 62.5% 的概率以数字开头，
+    # 而分词的 `_WORD_RE` 要求词首是字母，纯数字串（如 `6d2457e3`）不会被提取成
+    # 检索词，于是不会出现在 highlights 里——本用例曾因此约六成概率失败。
+    # 这与字母无关，纯粹是「检索词能否被分词器提取」的前提。
+    marker = f"s{suffix}"
     note = client.post(
         "/api/documents/notes",
         json={
-            "title": f"Zzq标题独有词{suffix}",
+            "title": f"Zzq标题独有词{marker}",
             "content_text": "正文里完全没有那个独有词，只有别的内容",
         },
     )
@@ -398,8 +402,8 @@ def test_title_is_searchable(client: TestClient) -> None:
         # keyword_search 返回内部 _Row（无 highlights）；要走完整链路拿 SearchHit
         from app.rag.retriever import keyword_only
 
-        hits = keyword_only(db, f"Zzq标题独有词{suffix}", 20)
-        matched = [h for h in hits if suffix in (h.document_title or "")]
+        hits = keyword_only(db, f"Zzq标题独有词{marker}", 20)
+        matched = [h for h in hits if marker in (h.document_title or "")]
         assert matched, "标题独有词搜不到文档"
 
         # 标题命中应体现在 highlights 里（前端据此高亮标题）。
@@ -408,9 +412,7 @@ def test_title_is_searchable(client: TestClient) -> None:
         # **任意**命中条目标题词出现在 highlights 中——若一条都没有，
         # 说明标题匹配没有回填到 highlights（前端高亮会失效）。
         assert any(
-            suffix.lower() in hl.lower()
-            for h in matched
-            for hl in h.highlights
+            marker.lower() in hl.lower() for h in matched for hl in h.highlights
         ), "标题命中未进 highlights"
     finally:
         db.close()

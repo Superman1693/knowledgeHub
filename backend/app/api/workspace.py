@@ -1,7 +1,7 @@
 """工作区路由：工作台汇总、每日笔记、笔记模板、外部变更扫描。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -23,6 +23,26 @@ async def daily_note(db: Session = Depends(get_db)) -> DocumentDetail:
     """获取或创建「今日笔记」（标题为 YYYY-MM-DD）。"""
     doc, _created = await workspace_service.get_or_create_daily_note(db)
     return DocumentDetail.model_validate(doc)
+
+
+@router.post("/capture")
+async def quick_capture(payload: dict = Body(...), db: Session = Depends(get_db)) -> dict:
+    """速记：把一句话追加到今日笔记的「今日记录」小节。
+
+    低摩擦捕获入口——用户不必先想标题、分类、放哪，先记下来，整理留到以后。
+    刻意不新建独立笔记：每记一句就多一个文档碎片会冲垮收集箱，
+    反而增加整理负担（详情见 `workspace_service.quick_capture`）。
+    """
+    text = str(payload.get("text") or "")
+    doc, created, _body = await workspace_service.quick_capture(db, text)
+    return {
+        "document_id": str(doc.id),
+        "document_title": doc.title,
+        "daily_created": created,
+        "message": (
+            f"已记入今日笔记{'（今日笔记为新建）' if created else ''}"
+        ),
+    }
 
 
 @router.get("/templates")

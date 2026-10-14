@@ -116,7 +116,7 @@
     />
 
     <!-- 全局快捷搜索 / 跳转（Ctrl/Cmd + K） -->
-    <CommandPalette v-model="paletteOpen" />
+    <CommandPalette v-model="paletteOpen" :start-in-capture="paletteCapture" />
   </div>
 </template>
 
@@ -130,6 +130,8 @@ import CommandPalette from '@/components/CommandPalette.vue'
 const route = useRoute()
 /** 快捷搜索面板开关（Ctrl/Cmd + K） */
 const paletteOpen = ref(false)
+/** 本次打开命令面板是否直接进速记模式（Ctrl+Shift+K 置真）。 */
+const paletteCapture = ref(false)
 /** 窄屏侧栏抽屉开关（宽屏下侧栏常驻，此状态无意义） */
 const drawerOpen = ref(false)
 
@@ -181,6 +183,8 @@ function initTheme() {
 function onGlobalKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
+    // Ctrl+Shift+K 直接进速记（捕获优先）；Ctrl+K 进搜索
+    paletteCapture.value = e.shiftKey
     paletteOpen.value = true
   }
 }

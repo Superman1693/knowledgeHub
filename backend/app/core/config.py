@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     frontend_port: int = 5173
     cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
 
+    # ---------- 局域网访问口令 ----------
+    # 留空 = 仅本机可访问（默认，最安全）。
+    # 把 BACKEND_HOST 改成 0.0.0.0 对外提供局域网访问时**必须**同时设置它，
+    # 否则启动会被拒绝（见 core/security.assert_exposure_is_safe）——
+    # 知识库里是私人资料，裸露在局域网上且无口令是不可接受的默认。
+    access_token: str = ""
+
     # ---------- 上传限制 ----------
     max_upload_mb: int = 50
 
