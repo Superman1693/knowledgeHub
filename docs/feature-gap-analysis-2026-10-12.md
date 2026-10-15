@@ -220,6 +220,8 @@
 > **文档标题可检索**（此前搜 `Harness.md` 的「Harness」0 命中）与
 > **新建笔记即可设私密**（此前 `NoteCreate` 无 `ai_enabled`，而 Pydantic 静默忽略未知字段）。
 > 落地细节见 `docs/localmind-design-mapping.md` 第十二 ~ 十五节。
+> 此后又按 PKM 对比调研补齐了输入/输出两端：相关笔记、速记、局域网访问、
+> 网页剪藏、知识库体检、静态站导出、**PDF 批注**（见第十六 ~ 二十一节）。
 
 > ⚠️ 两条硬约定（来自本项目反复踩过的坑，实施时务必遵守）：
 > 1. **新增任何表，必须同步登记进 `backup_service.DUMP_TABLES` 与 `CLEAR_ORDER`**

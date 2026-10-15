@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>kh-selftest</title>
+    <style>
+      body { font: 13px/1.6 monospace; margin: 12px; }
+      #pages { position: absolute; left: -9999px; top: 0; }
+      #result { white-space: pre-wrap; }
+      .ok { color: #067d17; }
+      .bad { color: #c00; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <!--
+      PDF 批注的坐标系自检页（阶段 0 验收）。
+
+      为什么要有它：坐标换算是本方案唯一「做了才发现不对」的地方，
+      而它只有在**真实浏览器 + 真实 pdf.js 文本层**里才能验证——
+      jsdom 没有布局引擎，单元测试只能测纯函数。
+
+      它做的事：把同一段文字在 scale=1 下划选 → 存成归一化矩形 →
+      换到 scale=2 重绘 → 用**同一份归一化矩形**画高亮 →
+      重新选同一段文字 → 断言高亮的像素位置与真实文字重合。
+
+      结果写进 #result，由外部自动化读取。
+    -->
+    <div id="pages" class="kh-pdf"></div>
+    <div id="result">running…</div>
+
+    <script type="module" src="/e2e/pdf-coords.selftest.ts"></script>
+  </body>
+</html>

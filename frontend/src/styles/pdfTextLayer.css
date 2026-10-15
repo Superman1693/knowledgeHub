@@ -1,0 +1,66 @@
+/**
+ * PDF 文本层的必需样式（从 pdfjs-dist/web/pdf_viewer.css 抽取并收窄）。
+ *
+ * 为什么不直接 `import 'pdfjs-dist/web/pdf_viewer.css'`：那份文件同时包含
+ * 工具栏、编辑器、注释层等 60+ 条规则，其中有大量**全局选择器**
+ * （`.toolbar`、`.hidden`、`button` 等），会污染 Element Plus 的样式。
+ * 这里只取文本层真正需要的那几条，并用 `.kh-pdf` 收窄作用域。
+ *
+ * ⚠️ 文本层 span 必须 `color: transparent`：它只是「可选择的文字」，
+ * 视觉上的字形由 canvas 绘制。两者位置由 `--scale-factor` 与 pdf.js
+ * 写入的绝对定位保证对齐 —— **高亮的准确性来自这里**。
+ */
+
+.kh-pdf .textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 2;
+}
+
+.kh-pdf .textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.kh-pdf .textLayer > :not(.markedContent) {
+  z-index: 1;
+}
+
+.kh-pdf .textLayer span.markedContent {
+  top: 0;
+  height: 0;
+}
+
+/* 选区本身也要可见，否则用户不知道自己划到了什么 */
+.kh-pdf .textLayer ::selection {
+  background: rgb(0 0 255 / 0.28);
+}
+
+.kh-pdf .textLayer br::selection {
+  background: transparent;
+}
+
+/* pdf.js 用它兜住「点在空白处取消选择」的行为，缺了会让拖选很难受 */
+.kh-pdf .textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+
+.kh-pdf .textLayer.selecting .endOfContent {
+  top: 0;
+}

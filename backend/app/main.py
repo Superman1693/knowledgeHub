@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import backup as backup_api
 from app.api import categories as categories_api
 from app.api import chat as chat_api
+from app.api import annotations as annotations_api
 from app.api import attachments as attachments_api
 from app.api import devhelper as devhelper_api
 from app.api import documents as documents_api
@@ -103,6 +104,9 @@ register_exception_handlers(app)
 
 app.include_router(health_api.router)
 app.include_router(documents_api.router)
+# PDF 批注：挂在 /api/documents/{id}/annotations 与 /api/annotations/{aid} 下。
+# 路径段数与 documents 路由不重叠，不存在「静态段被当成 UUID」的顺序问题。
+app.include_router(annotations_api.router)
 app.include_router(categories_api.router)
 app.include_router(tags_api.router)
 app.include_router(attachments_api.router)

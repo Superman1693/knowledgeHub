@@ -1,5 +1,8 @@
-import client from './client'
+import client, { getAccessToken } from './client'
 import type {
+  AnnotationExportOut,
+  AnnotationListOut,
+  AnnotationRect,
   AssistResult,
   AttachmentOut,
   AttachmentUploadResult,
@@ -23,6 +26,7 @@ import type {
   IndexStatus,
   LinkSummary,
   OrganizeSuggestion,
+  PdfAnnotation,
   QuizQuestionSet,
   QuizRecord,
   RelatedDocument,
@@ -820,5 +824,71 @@ export const devhelperApi = {
     return client
       .get<{ dates: string[]; total: number }>(`/devhelper/timeline/dates/${documentId}`)
       .then((r) => r.data)
+  },
+}
+
+
+/** PDF 批注：高亮/批注的增删改查 + 导出笔记 + 出闪卡。 */
+export const annotationsApi = {
+  /** 列出批注。`page` 只影响 items，`total` 始终是该文档全量。 */
+  list(documentId: string, page?: number) {
+    return client
+      .get<AnnotationListOut>(`/documents/${documentId}/annotations`, {
+        params: page ? { page } : {},
+      })
+      .then((r) => r.data)
+  },
+
+  create(
+    documentId: string,
+    payload: {
+      page_no: number
+      quote: string
+      rects: AnnotationRect[]
+      prefix?: string | null
+      suffix?: string | null
+      rotation?: number
+      color?: string
+      comment?: string | null
+    },
+  ) {
+    return client
+      .post<PdfAnnotation>(`/documents/${documentId}/annotations`, payload)
+      .then((r) => r.data)
+  },
+
+  update(id: string, payload: { color?: string; comment?: string | null }) {
+    return client.put<PdfAnnotation>(`/annotations/${id}`, payload).then((r) => r.data)
+  },
+
+  remove(id: string) {
+    return client.delete(`/annotations/${id}`).then((r) => r.data)
+  },
+
+  /** 把批注导出成一篇可检索、可双链的笔记（幂等：重复导出是更新而非新建）。 */
+  exportNote(documentId: string) {
+    return client
+      .post<AnnotationExportOut>(`/documents/${documentId}/annotations/export`)
+      .then((r) => r.data)
+  },
+
+  /** 由批注生成闪卡（复用已有的「选中文字 → 出题」链路）。 */
+  cards(id: string, count = 3) {
+    return client
+      .post<AssistResult>(`/annotations/${id}/cards`, null, { params: { count } })
+      .then((r) => r.data)
+  },
+
+  /**
+   * PDF 原始文件的 URL，供 pdf.js 加载。
+   *
+   * 口令走**查询串**而不是请求头：pdf.js 会为分片加载自行发起请求
+   * （带 Range 头），不一定经过我们的 axios 实例，
+   * 所以必须把口令放进 URL 才能保证局域网模式下也能打开。
+   */
+  fileUrl(documentId: string) {
+    const token = getAccessToken()
+    const base = `/api/documents/${documentId}/file`
+    return token ? `${base}?token=${encodeURIComponent(token)}` : base
   },
 }

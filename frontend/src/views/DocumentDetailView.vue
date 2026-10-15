@@ -13,6 +13,10 @@
           <el-icon><EditPen /></el-icon>
           <span>编辑正文</span>
         </el-button>
+        <el-button v-if="isPdf" size="small" type="primary" plain @click="openAnnotator">
+          <el-icon><Reading /></el-icon>
+          <span>阅读与批注{{ annotationCount ? `（${annotationCount}）` : '' }}</span>
+        </el-button>
         <el-button size="small" @click="toggleFavorite">
           <el-icon :class="{ 'is-on': doc.is_favorite }">
             <StarFilled v-if="doc.is_favorite" />
@@ -223,7 +227,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { categoriesApi, documentsApi, insightsApi, tagsApi } from '@/api'
+import { annotationsApi, categoriesApi, documentsApi, insightsApi, tagsApi } from '@/api'
 import type {
   Category,
   ChunkOut,
@@ -318,6 +322,31 @@ const isMarkdownLike = computed(() =>
 
 const fmt = (v: string) => new Date(v).toLocaleString('zh-CN')
 
+/**
+ * 是否是带「页」结构的 PDF。
+ *
+ * 只有 PDF 才有批注——批注的锚点是「页号 + 引文 + 归一化矩形」，
+ * 普通笔记没有页这一层。所以在详情页里把这个入口限制给 PDF。
+ */
+const isPdf = computed(
+  () => (doc.value?.file_type || '').toLowerCase().replace(/^\./, '') === 'pdf',
+)
+const annotationCount = ref(0)
+
+function openAnnotator() {
+  router.push(`/documents/${id}/annotate`)
+}
+
+/** 批注数只用于在按钮上显示「（N）」；失败静默，不影响页面其余部分 */
+async function loadAnnotationCount() {
+  if (!isPdf.value) return
+  try {
+    annotationCount.value = (await annotationsApi.list(id)).total
+  } catch {
+    /* 忽略 */
+  }
+}
+
 async function load() {
   loading.value = true
   try {
@@ -332,6 +361,8 @@ async function load() {
     documentsApi.touchViewed(id).catch(() => {})
     // 双向链接（失败不影响页面）；相关笔记要等出链拿到后再去重，故串在后面
     loadLinks().then(loadRelated)
+    // 批注数（仅 PDF；失败静默）
+    loadAnnotationCount()
   } finally {
     loading.value = false
   }

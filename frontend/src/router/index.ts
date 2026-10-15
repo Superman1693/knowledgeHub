@@ -27,6 +27,15 @@ const router = createRouter({
           meta: { title: '文档详情', hidden: true },
         },
         {
+          // PDF 阅读与批注。单独一个路由而不是嵌在详情页里：
+          // 它是一个占满整屏的阅读器（自带滚动与侧栏），
+          // 塞进详情页的卡片流里既挤又难用
+          path: 'documents/:id/annotate',
+          name: 'document-annotate',
+          component: () => import('@/views/PdfAnnotateView.vue'),
+          meta: { title: 'PDF 批注', hidden: true },
+        },
+        {
           path: 'notes/new',
           name: 'note-new',
           component: () => import('@/views/NoteEditView.vue'),

@@ -8,6 +8,7 @@ from app.models.flashcard import Flashcard, ReviewLog
 from app.models.glossary import GlossaryTerm
 from app.models.learning import QuizRecord
 from app.models.link import NoteLink
+from app.models.pdf_annotation import PdfAnnotation
 from app.models.revision import NoteRevision
 from app.models.saved_search import SavedSearch
 from app.models.setting import AppSetting
@@ -24,6 +25,7 @@ __all__ = [
     "GlossaryTerm",
     "NoteLink",
     "NoteRevision",
+    "PdfAnnotation",
     "QuizRecord",
     "ReviewLog",
     "SavedSearch",

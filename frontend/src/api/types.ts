@@ -462,6 +462,44 @@ export interface KbHealthOut {
   note: string
 }
 
+/** 归一化矩形：相对页面可视区左上角，0..1，与缩放/旋转无关。 */
+export interface AnnotationRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/** 一条 PDF 高亮/批注。`quote` 是主锚（坐标丢了靠它重新定位）。 */
+export interface PdfAnnotation {
+  id: string
+  document_id: string
+  page_no: number
+  quote: string
+  prefix: string | null
+  suffix: string | null
+  rects: AnnotationRect[]
+  rotation: number
+  color: string
+  comment: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AnnotationListOut {
+  /** 该文档**全部**批注数（按页过滤时 items 变少但 total 不变） */
+  total: number
+  items: PdfAnnotation[]
+}
+
+export interface AnnotationExportOut {
+  document_id: string
+  title: string
+  annotation_count: number
+  /** true = 新建了笔记；false = 更新了此前导出的那一篇（导出是幂等的） */
+  created: boolean
+}
+
 export interface WorkbenchOut {
   recent_edited: NoteBrief[]
   recent_viewed: NoteBrief[]

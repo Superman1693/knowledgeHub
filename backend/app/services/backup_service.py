@@ -24,6 +24,7 @@ from app.models import (
     Message,
     NoteLink,
     NoteRevision,
+    PdfAnnotation,
     QuizRecord,
     ReviewLog,
     SavedSearch,
@@ -42,6 +43,7 @@ CLEAR_ORDER = [
     "flashcards",        # 引用 documents / chunks
     "note_links",        # 引用 documents
     "note_revisions",    # 引用 documents（版本历史）
+    "pdf_annotations",   # 引用 documents（PDF 批注，随文档级联删除）
     "quiz_records",      # 引用 documents / chunks
     "glossary_terms",
     "messages",
@@ -62,6 +64,7 @@ DUMP_TABLES = [
     ("documents", Document),
     ("conversations", Conversation),
     ("note_revisions", NoteRevision),   # 版本历史（引用 documents）
+    ("pdf_annotations", PdfAnnotation),  # PDF 批注（引用 documents）
     ("chunks", Chunk),
     ("note_links", NoteLink),
     ("flashcards", Flashcard),

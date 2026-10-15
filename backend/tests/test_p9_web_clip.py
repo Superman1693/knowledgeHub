@@ -176,35 +176,61 @@ def test_clip_creates_document_with_source_url(client: TestClient) -> None:
         client.delete(f"/api/documents/{doc['id']}/purge")
 
 
+URL = "https://example.com/"
+
+
+def _is_duplicate_rejection(res) -> bool:
+    """422 在本项目里被多种语义共用（参数校验 / 业务拒绝 / 抓取失败），
+    **必须看 message 才能判断到底是哪一种**——只看状态码会把「抓取失败」
+    误当成「已剪藏过」，于是用例在代理抖动时给出假结论（历史踩过）。"""
+    return res.status_code == 422 and "已经剪藏过" in res.text
+
+
+def _is_network_failure(res) -> bool:
+    return res.status_code == 422 and "抓取失败" in res.text
+
+
 def test_duplicate_clip_is_rejected_by_default(client: TestClient) -> None:
     """同一网址默认拒绝重复剪藏——两份同源内容会污染检索结果。"""
     try:
-        first = client.post("/api/documents/from-url", json={"url": "https://example.com/"})
+        first = client.post("/api/documents/from-url", json={"url": URL})
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"外网不可达，跳过：{exc}")
 
-    if first.status_code not in (201, 422):
-        pytest.skip("外网抓取未成功，跳过")
+    if _is_network_failure(first):
+        pytest.skip(f"外网抓取失败（很可能是环境代理抖动），跳过：{first.text[:80]}")
 
     created: list[str] = []
-    if first.status_code == 201:
-        created.append(first.json()["id"])
-
     try:
-        again = client.post("/api/documents/from-url", json={"url": "https://example.com/"})
-        assert again.status_code == 422, "重复剪藏未被拒绝"
-        assert "已经剪藏过" in again.text
+        if _is_duplicate_rejection(first):
+            # 环境里已经有同源文档（上一次运行留下的）：显式允许再建一份，
+            # 给本用例一个可控的起点，而不是直接跳过
+            seeded = client.post(
+                "/api/documents/from-url", json={"url": URL, "allow_duplicate": True}
+            )
+            assert seeded.status_code == 201, seeded.text
+            created.append(seeded.json()["id"])
+        else:
+            assert first.status_code == 201, f"首次剪藏意外失败：{first.status_code} {first.text[:120]}"
+            created.append(first.json()["id"])
+
+        # 此时库里一定有一份同源文档 → 再剪一次必须被拒
+        again = client.post("/api/documents/from-url", json={"url": URL})
+        assert _is_duplicate_rejection(again), (
+            f"重复剪藏未被拒绝：{again.status_code} {again.text[:120]}"
+        )
 
         # 显式允许时可以通过
         forced = client.post(
-            "/api/documents/from-url",
-            json={"url": "https://example.com/", "allow_duplicate": True},
+            "/api/documents/from-url", json={"url": URL, "allow_duplicate": True}
         )
-        assert forced.status_code == 201
+        assert forced.status_code == 201, forced.text
         created.append(forced.json()["id"])
     finally:
-        for i in created:
-            client.delete(f"/api/documents/{i}/purge")
+        # ⚠️ 必须清掉**本用例创建的全部**文档：漏一个就会让下一次运行
+        # 的「首次剪藏」变成重复而误判，且是静默的
+        for doc_id in created:
+            client.delete(f"/api/documents/{doc_id}/purge")
 
 
 def test_missing_url_is_422(client: TestClient) -> None:
