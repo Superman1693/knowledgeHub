@@ -119,7 +119,9 @@ def test_capture_rejects_overlong_text(client: TestClient) -> None:
 
 # ---------------- 相关笔记 ----------------
 
-def test_related_documents_are_ranked_and_exclude_self(client: TestClient) -> None:
+def test_related_documents_are_ranked_and_exclude_self(
+    client: TestClient, seeded_library: None
+) -> None:
     """相关笔记：不得包含自己，相似度按降序排列。"""
     docs = client.get("/api/documents", params={"page_size": 10}).json()["items"]
     if not docs:

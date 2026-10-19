@@ -272,7 +272,9 @@ def test_block_reference_creates_link_with_anchor(client: TestClient) -> None:
         client.delete(f"/api/documents/{target_id}/purge")
 
 
-def test_link_targets_expose_ids_for_clicking(client: TestClient) -> None:
+def test_link_targets_expose_ids_for_clicking(
+    client: TestClient, seeded_library: None
+) -> None:
     """link-targets 必须带文档 ID，否则正文链接无法跳转。"""
     res = client.get("/api/documents/link-targets").json()
     assert "items" in res
@@ -468,7 +470,7 @@ def test_create_note_accepts_ai_enabled(client: TestClient) -> None:
 
 # ---------------- 编辑距离模糊匹配（P3-3 补齐） ----------------
 
-def test_fuzzy_match_recovers_misspelled_english() -> None:
+def test_fuzzy_match_recovers_misspelled_english(seeded_library: None) -> None:
     """拼错一个字母的英文词也应能搜到。
 
     场景：用户想搜 `vue` 打成了 `vuee`、`docker` 打成了 `docer`。
@@ -488,7 +490,7 @@ def test_fuzzy_match_recovers_misspelled_english() -> None:
         db.close()
 
 
-def test_fuzzy_is_fallback_not_default() -> None:
+def test_fuzzy_is_fallback_not_default(seeded_library: None) -> None:
     """模糊匹配只在精确结果不足时启用，不污染正常搜索。
 
     直接对比同一查询开/关 fuzzy 的结果：精确结果充足时两者必须一致
@@ -512,7 +514,7 @@ def test_fuzzy_is_fallback_not_default() -> None:
         db.close()
 
 
-def test_fuzzy_skips_short_and_non_english_terms() -> None:
+def test_fuzzy_skips_short_and_non_english_terms(seeded_library: None) -> None:
     """短词（<=3 字符）与非英文词不参与模糊匹配。
 
     `go` 若参与容错会命中 got/god/gone/going 一大堆，噪声远大于收益。

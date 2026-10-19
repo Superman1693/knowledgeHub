@@ -1558,3 +1558,88 @@ dev 走中间件直读 `node_modules`，build 时复制进产物。**两种运�
 
 **教训**：断言不要落在被多种语义共用的状态码上，要落在 message 表达的业务事实上。
 这与第十七节那次 flake 是同一类问题的不同变体。
+
+---
+
+## 22. 第十二轮：测试隔离（2026-10-19）
+
+这是长期挂在「已知待办」第一条的**工程债**，一直没做是因为它不产生用户可感知的功能。
+但 PDF 批注落地后它变成了**每天都要付的成本**：一轮测试在 `data/documents` 留 126 个孤儿文件，
+必须手工清；而残留又会让「要求目录干净」的用例**自动 skip**——不是通过，是没跑。
+
+### 22.1 隔离前的三个具体问题
+
+| 问题 | 后果 |
+|---|---|
+| 直连真实 PostgreSQL | 跑测试等于拿真实知识库做实验；某个用例 `finally` 清一半，库里就留半截数据 |
+| 直连真实 `data/` | 每轮留下几十上百个孤儿文件，只能手工清；删除还可能被系统拦截（>50 个/次） |
+| 用 skip 当守卫 | `test_backup_restore_roundtrip_and_orphan_cleanup` 在库中有数据时跳过，`test_scan_reports_orphan_file` 在目录有残留时跳过——两条都**长期没真跑过**，覆盖率是虚的 |
+
+### 22.2 方案：数据库用独立 schema，而不是独立库
+
+应用账号 `kh_app` **没有 `CREATEDB` 权限**，建不了独立数据库。所以走 schema 级隔离：
+测试跑在同一数据库的 `kh_test` 里，隔离效果与独立库等价，且**不需要改任何应用代码**。
+
+| 维度 | 做法 |
+|---|---|
+| schema 选择 | 每轮会话开始 `DROP SCHEMA kh_test CASCADE` → `CREATE SCHEMA`，保证起点干净 |
+| 表结构 | 跑 **alembic 迁移**建表，不用 `create_all`——后者只建模型里声明的对象，会漏掉「只存在于迁移里」的索引/约束，测试就测不到真实结构 |
+| 生效方式 | 给引擎挂 `connect` 事件监听，每条连接执行 `SET search_path TO kh_test, public` |
+| `public` 必须保留 | `vector` / `pg_trgm` 装在 `public`，去掉就解析不到类型与函数 |
+| 文件 | `settings.data_dir` 指向系统临时目录，整轮结束删除 |
+
+### 22.3 四个坑，其中第三个最隐蔽
+
+1. **连接串塞 `?options=`** → `%3D` 被 configparser 当成插值语法，alembic 直接抛
+   `invalid interpolation syntax`。alembic 的 `set_main_option` 走的是 configparser，不能有裸 `%`。
+2. **改用 `PGOPTIONS` 环境变量** → 应用引擎生效、**alembic 的引擎不生效**，
+   表现为「迁移一条都没跑」，排查成本很高。最后弃用，改成显式对连接执行 SQL。
+3. ⭐ **`alembic_version` 是不带 schema 查的**。`search_path = kh_test, public` 时，
+   测试 schema 里还没有这张表，PG 就顺着 search_path **命中 public 里真实库的 alembic_version**，
+   于是 alembic 认定「已到 head」，`upgrade head` 一条迁移都不跑——
+   而错误表现是「表没建出来」，完全看不出跟版本表有关。
+   修法：注入连接时**显式指定 `version_table_schema`**（`env.py` 里读 `config.attributes`）。
+4. **临时目录删不掉**：`setup_logging` 把 `FileHandler` 挂在 `logs/` 下，Windows 上
+   「仍被打开的文件」无法删除，`shutil.rmtree(..., ignore_errors=True)` 又把这个失败**静默吞掉**，
+   于是残留了 7 个临时目录。修法：teardown 里先 `engine.dispose()`，再 `logging.shutdown()`，最后删目录。
+
+### 22.4 `env.py` 的一处改动
+
+`run_migrations_online()` 增加了「外部注入连接」的分支：
+
+```python
+injected = config.attributes.get("connection")
+if injected is not None:
+    context.configure(connection=injected, ..., version_table_schema=...)
+    ...
+    return
+```
+
+这是 alembic 官方支持的程序化调用模式，**不注入时行为与之前完全一致**
+（`alembic upgrade head`、`alembic check` 走原路径）。加它的理由：测试需要把迁移跑在
+「已设好 search_path 的连接」上，而连接串/环境变量两条隐式路子都不靠谱（见 22.3）。
+
+### 22.5 连带修掉的测试缺陷
+
+隔离后测试库是空的，几个**依赖用户真实知识库内容**的用例立刻暴露出来：
+
+| 用例 | 原来的假设 | 修法 |
+|---|---|---|
+| `test_fuzzy_match_recovers_misspelled_english` 等 3 条 | 库里一定有 `vue.md` / `Docker.md` | 新增 `seeded_library` 夹具，自己造一小组固定文档（幂等，因为备份往返用例会清库） |
+| `test_link_targets_expose_ids_for_clicking` | 同理 | 同上 |
+| `test_data_dir_change_is_guarded` | 写死 `"./data"` 表示「同一目录、不同写法」 | 改成「末尾加 `.`」——隔离后数据目录在系统临时目录，可能与项目不同盘符，`relpath` 会抛 `ValueError` |
+
+**这几条本身就是坏味道**：测试依赖「别人的数据刚好长这样」。现在改成自己造，可重复。
+
+### 22.6 结果
+
+| 项 | 隔离前 | 隔离后 |
+|---|---|---|
+| 用例结果 | 190 passed, **3 skipped** | **193 passed, 0 skipped** |
+| 命令 | `pytest tests -v --basetemp=.pytest_tmp` | `pytest`（basetemp 已进 `pytest.ini`） |
+| 真实库 | 被读写 | **完全不动**（实测 documents=3 / chunks=146 不变） |
+| 真实 `data/` | 每轮留残留，需手工清 | **完全不动**（实测仍是 3 个文件） |
+| 临时目录残留 | — | 0（验证过连续多轮） |
+
+3 个 skipped 归零不是「补了 3 条用例」，而是**那 3 条守卫不再触发**：
+备份/恢复往返、孤儿文件扫描、批量收录上限现在每轮都真跑。

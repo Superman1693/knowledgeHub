@@ -12,6 +12,8 @@
 """
 from __future__ import annotations
 
+import os
+
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
@@ -377,7 +379,12 @@ def test_data_dir_change_is_guarded() -> None:
     db = SessionLocal()
     try:
         assert settings_service._normalize_data_dir(db, str(settings.data_path)) is None
-        assert settings_service._normalize_data_dir(db, "./data") is None
+        # 「同一目录、不同写法」用「末尾加一个 .」表达。
+        # 此前这里写死了 "./data"——那只有数据目录恰好在项目下才成立；
+        # 测试隔离后数据目录在系统临时目录（可能和项目不同盘符），
+        # 用 relpath 反而会因跨盘符抛 ValueError。
+        same_dir_other_spelling = f"{settings.data_path}{os.sep}."
+        assert settings_service._normalize_data_dir(db, same_dir_other_spelling) is None
 
         has_docs = (
             db.execute(select(Document.id).limit(1)).scalars().first() is not None
